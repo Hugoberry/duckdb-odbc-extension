@@ -23,8 +23,11 @@ public:
     // Convert DuckDB type to ODBC type
     static SQLSMALLINT ToODBCType(const LogicalType &input);
     
-    // Convert ODBC type to DuckDB LogicalType
+    // Convert ODBC type to DuckDB LogicalType with improved handling
     static LogicalType TypeToLogicalType(SQLSMALLINT odbc_type, SQLULEN column_size, SQLSMALLINT decimal_digits);
+    
+    // Check if a column contains timezone information
+    static bool IsTimestampWithTimezone(SQLHSTMT stmt, SQLUSMALLINT column_index);
 };
 
 } // namespace duckdb

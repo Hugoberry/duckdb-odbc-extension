@@ -102,16 +102,39 @@ SQLSMALLINT ODBCStatement::GetODBCType(idx_t col) {
     return data_type;
 }
 
+// Get column attributes including precision and scale
+bool ODBCStatement::GetColumnAttributes(idx_t col, SQLSMALLINT &data_type, 
+                                        SQLULEN &column_size, SQLSMALLINT &decimal_digits) {
+    if (!hstmt) {
+        return false;
+    }
+    
+    SQLSMALLINT nullable; // We don't need this but SQLDescribeCol requires it
+    
+    SQLRETURN ret = SQLDescribeCol(hstmt, col + 1, nullptr, 0, nullptr, 
+                                  &data_type, &column_size, &decimal_digits, &nullable);
+    
+    return (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO);
+}
+
 int ODBCStatement::GetType(idx_t col) {
     SQLSMALLINT odbc_type = GetODBCType(col);
     
-    // Map ODBC types to DuckDB internal type numbers
-    // This is a simplified version - a real implementation would map all ODBC types
+    // Get precision and scale for better type conversion
+    SQLSMALLINT data_type;
+    SQLULEN column_size;
+    SQLSMALLINT decimal_digits;
+    
+    if (GetColumnAttributes(col, data_type, column_size, decimal_digits)) {
+        auto logical_type = ODBCUtils::TypeToLogicalType(odbc_type, column_size, decimal_digits);
+        return (int)logical_type.id();
+    }
+    
+    // Fallback to basic mapping without precision/scale if getting attributes failed
     switch (odbc_type) {
         case SQL_CHAR:
         case SQL_VARCHAR:
         case SQL_LONGVARCHAR:
-            return (int)LogicalTypeId::VARCHAR;
         case SQL_WCHAR:
         case SQL_WVARCHAR:
         case SQL_WLONGVARCHAR:
@@ -121,29 +144,45 @@ int ODBCStatement::GetType(idx_t col) {
         case SQL_LONGVARBINARY:
             return (int)LogicalTypeId::BLOB;
         case SQL_SMALLINT:
+            return (int)LogicalTypeId::SMALLINT;
         case SQL_INTEGER:
-        case SQL_TINYINT:
             return (int)LogicalTypeId::INTEGER;
+        case SQL_TINYINT:
+            return (int)LogicalTypeId::TINYINT;
         case SQL_BIGINT:
             return (int)LogicalTypeId::BIGINT;
         case SQL_REAL:
         case SQL_FLOAT:
+            return (int)LogicalTypeId::FLOAT;
         case SQL_DOUBLE:
             return (int)LogicalTypeId::DOUBLE;
         case SQL_DECIMAL:
         case SQL_NUMERIC:
-            return (int)LogicalTypeId::DECIMAL;
+            // Need precision/scale for proper decimal handling,
+            // but since we don't have it here, use DOUBLE
+            return (int)LogicalTypeId::DOUBLE;
         case SQL_BIT:
 #ifdef SQL_BOOLEAN
         case SQL_BOOLEAN:
 #endif
             return (int)LogicalTypeId::BOOLEAN;
         case SQL_DATE:
+        case SQL_TYPE_DATE:
             return (int)LogicalTypeId::DATE;
         case SQL_TIME:
+        case SQL_TYPE_TIME:
             return (int)LogicalTypeId::TIME;
         case SQL_TIMESTAMP:
+        case SQL_TYPE_TIMESTAMP:
+            // Check for timezone info
+            if (ODBCUtils::IsTimestampWithTimezone(hstmt, col + 1)) {
+                // For timestamp with timezone, consider a special mapping
+                // but we don't have this type in DuckDB yet, use TIMESTAMP
+                return (int)LogicalTypeId::TIMESTAMP;
+            }
             return (int)LogicalTypeId::TIMESTAMP;
+        case SQL_GUID:
+            return (int)LogicalTypeId::UUID;
         default:
             return (int)LogicalTypeId::VARCHAR;
     }
@@ -184,16 +223,19 @@ idx_t ODBCStatement::GetColumnCount() {
     return column_count;
 }
 
+// Implementation for string value retrieval with potential chunking
 template <>
 std::string ODBCStatement::GetValue(idx_t col) {
     if (!hstmt) {
         throw std::runtime_error("Statement is not open");
     }
     
-    char buffer[4096];
+    // Try with a reasonably sized buffer first
+    char initial_buffer[4096];
     SQLLEN indicator;
     
-    SQLRETURN ret = SQLGetData(hstmt, col + 1, SQL_C_CHAR, buffer, sizeof(buffer), &indicator);
+    SQLRETURN ret = SQLGetData(hstmt, col + 1, SQL_C_CHAR, initial_buffer, 
+                              sizeof(initial_buffer), &indicator);
     
     if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
         std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
@@ -204,7 +246,47 @@ std::string ODBCStatement::GetValue(idx_t col) {
         return std::string();
     }
     
-    return std::string(buffer, indicator < sizeof(buffer) ? indicator : sizeof(buffer));
+    // If the string fits in our buffer, return it
+    if (indicator < sizeof(initial_buffer)) {
+        return std::string(initial_buffer, indicator < 0 ? 0 : indicator);
+    }
+    
+    // Large string - need to fetch it in chunks
+    std::string large_string;
+    large_string.reserve(indicator > 0 ? indicator : 8192);
+    
+    // Add what we've already read
+    large_string.append(initial_buffer, sizeof(initial_buffer) - 1);
+    
+    // Buffer for subsequent chunks
+    char chunk_buffer[8192];
+    bool more_data = true;
+    
+    while (more_data) {
+        ret = SQLGetData(hstmt, col + 1, SQL_C_CHAR, chunk_buffer, 
+                       sizeof(chunk_buffer), &indicator);
+        
+        if (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO) {
+            if (indicator == SQL_NULL_DATA) {
+                break;
+            }
+            
+            // Determine how much to append
+            size_t chunk_size;
+            if (indicator < sizeof(chunk_buffer)) {
+                chunk_size = indicator < 0 ? 0 : indicator;
+            } else {
+                chunk_size = sizeof(chunk_buffer) - 1;
+            }
+            
+            large_string.append(chunk_buffer, chunk_size);
+            more_data = (ret == SQL_SUCCESS_WITH_INFO);
+        } else {
+            break;
+        }
+    }
+    
+    return large_string;
 }
 
 template <>
@@ -303,6 +385,48 @@ timestamp_t ODBCStatement::GetValue(idx_t col) {
     return Timestamp::FromDatetime(date, time);
 }
 
+template <>
+hugeint_t ODBCStatement::GetValue(idx_t col) {
+    // Try to get as BIGINT first
+    try {
+        int64_t value;
+        SQLLEN indicator;
+        
+        SQLRETURN ret = SQLGetData(hstmt, col + 1, SQL_C_SBIGINT, &value, sizeof(value), &indicator);
+        
+        if (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO) {
+            if (indicator == SQL_NULL_DATA) {
+                return hugeint_t(0);
+            }
+            return hugeint_t(value);
+        }
+    } catch (...) {
+        // Fall through to string parsing if direct retrieval fails
+    }
+    
+    // If BIGINT retrieval fails, try to get as string and parse
+    char buffer[100]; // Should be enough for any number
+    SQLLEN indicator;
+    
+    SQLRETURN ret = SQLGetData(hstmt, col + 1, SQL_C_CHAR, buffer, sizeof(buffer), &indicator);
+    
+    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
+        throw std::runtime_error("Failed to get hugeint value: " + error);
+    }
+    
+    if (indicator == SQL_NULL_DATA) {
+        return hugeint_t(0);
+    }
+    
+    hugeint_t value;
+    if (!Hugeint::TryConvert(std::string(buffer, indicator < sizeof(buffer) ? indicator : (sizeof(buffer) - 1)), value)) {
+        throw std::runtime_error("Failed to convert string to hugeint");
+    }
+    
+    return value;
+}
+
 SQLLEN ODBCStatement::GetValueLength(idx_t col) {
     if (!hstmt) {
         throw std::runtime_error("Statement is not open");
@@ -373,6 +497,36 @@ void ODBCStatement::Bind(idx_t col, std::nullptr_t value) {
     }
 }
 
+template <>
+void ODBCStatement::Bind(idx_t col, hugeint_t value) {
+    if (!hstmt) {
+        throw std::runtime_error("Statement is not open");
+    }
+    
+    // Check if the value fits in an int64_t
+    // A hugeint_t consists of a lower and upper component
+    // If the upper is 0 (or -1 for negative numbers that fit in int64) we can safely convert
+    if ((value.upper == 0 && value.lower <= (uint64_t)NumericLimits<int64_t>::Maximum()) ||
+        (value.upper == -1 && value.lower > (uint64_t)NumericLimits<int64_t>::Maximum())) {
+        // Safe to convert to int64_t - it's just the lower bits
+        int64_t int64_val = (int64_t)value.lower;
+        Bind<int64_t>(col, int64_val);
+        return;
+    }
+    
+    // Otherwise, convert to string and bind as VARCHAR
+    std::string str_val = Hugeint::ToString(value);
+    
+    SQLLEN str_len = str_val.length();
+    SQLRETURN ret = SQLBindParameter(hstmt, col + 1, SQL_PARAM_INPUT, SQL_C_CHAR, SQL_VARCHAR, 
+                                   str_val.length(), 0, (SQLPOINTER)str_val.c_str(), 0, &str_len);
+    
+    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
+        throw std::runtime_error("Failed to bind hugeint parameter: " + error);
+    }
+}
+
 void ODBCStatement::BindBlob(idx_t col, const string_t &value) {
     if (!hstmt) {
         throw std::runtime_error("Statement is not open");
@@ -415,8 +569,20 @@ void ODBCStatement::BindValue(Vector &col, idx_t c, idx_t r) {
             case LogicalTypeId::INTEGER:
                 Bind<int>(c, FlatVector::GetData<int>(col)[r]);
                 break;
+            case LogicalTypeId::SMALLINT:
+                Bind<int>(c, FlatVector::GetData<int16_t>(col)[r]);
+                break;
+            case LogicalTypeId::TINYINT:
+                Bind<int>(c, FlatVector::GetData<int8_t>(col)[r]);
+                break;
             case LogicalTypeId::DOUBLE:
                 Bind<double>(c, FlatVector::GetData<double>(col)[r]);
+                break;
+            case LogicalTypeId::FLOAT:
+                Bind<double>(c, FlatVector::GetData<float>(col)[r]);
+                break;
+            case LogicalTypeId::HUGEINT:
+                Bind<hugeint_t>(c, FlatVector::GetData<hugeint_t>(col)[r]);
                 break;
             case LogicalTypeId::BLOB:
                 BindBlob(c, FlatVector::GetData<string_t>(col)[r]);

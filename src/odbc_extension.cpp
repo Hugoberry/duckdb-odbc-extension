@@ -32,17 +32,27 @@ static void LoadInternal(DatabaseInstance &instance) {
     auto &config = DBConfig::GetConfig(instance);
     config.AddExtensionOption("odbc_all_varchar", "Load all ODBC columns as VARCHAR columns", LogicalType::BOOLEAN);
     
+    // Add option for chunk size
+    config.AddExtensionOption("odbc_chunk_size", "Size of buffer chunks for large data (VARCHAR/BLOB)", LogicalType::UINTEGER);
+    
+    // Add option for row group size for parallel scanning
+    config.AddExtensionOption("odbc_row_group_size", "Number of rows per scan group", LogicalType::UINTEGER);
+    
+    // Add option for login timeout
+    config.AddExtensionOption("odbc_login_timeout", "Login timeout in seconds", LogicalType::UINTEGER);
+    
+    // Debug options
     config.AddExtensionOption("odbc_debug_show_queries", "DEBUG SETTING: print all queries sent to ODBC to stdout",
                               LogicalType::BOOLEAN, Value::BOOLEAN(false), SetODBCDebugQueryPrint);
+    
+    // Add connection string parameter options
+    config.AddExtensionOption("odbc_connection_strings", "Additional connection parameters for ODBC drivers", 
+                             LogicalType::VARCHAR);
 }
 
 void OdbcExtension::Load(DuckDB &db) {
     LoadInternal(*db.instance);
 }
-
-// Remove these methods since they're already defined in the header
-// std::string OdbcExtension::Name() { ... }
-// std::string OdbcExtension::Version() const { ... }
 
 } // namespace duckdb
 

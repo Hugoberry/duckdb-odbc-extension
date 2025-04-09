@@ -8,6 +8,8 @@ namespace duckdb {
 struct ODBCOpenOptions {
     bool read_only = true; // We'll enforce read-only mode
     std::string connection_timeout = "60"; // Default 60s timeout
+    idx_t login_timeout = 30; // Default 30s login timeout
+    std::vector<std::pair<std::string, std::string>> additional_connection_strings;
 };
 
 class ODBCStatement;
@@ -68,7 +70,6 @@ private:
     bool owner;
 
     void CheckError(SQLRETURN ret, SQLSMALLINT handle_type, SQLHANDLE handle, const std::string &operation);
-
 };
 
 } // namespace duckdb

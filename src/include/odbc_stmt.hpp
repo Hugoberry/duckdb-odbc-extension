@@ -36,6 +36,10 @@ public:
     // Get the ODBC type of a column
     SQLSMALLINT GetODBCType(idx_t col);
     
+    // Get extended column attributes (type, size, scale)
+    bool GetColumnAttributes(idx_t col, SQLSMALLINT &data_type, 
+                             SQLULEN &column_size, SQLSMALLINT &decimal_digits);
+    
     // Get the DuckDB type of a column
     int GetType(idx_t col);
     

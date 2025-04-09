@@ -84,6 +84,15 @@ ODBCDB ODBCDB::OpenWithDSN(const string &dsn, const string &username, const stri
             fprintf(stderr, "Warning: Failed to set read-only mode\n");
         }
     }
+    
+    // Set login timeout if specified
+    if (options.login_timeout > 0) {
+        ret = SQLSetConnectAttr(hdbc, SQL_ATTR_LOGIN_TIMEOUT, (SQLPOINTER)(intptr_t)options.login_timeout, 0);
+        if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+            // Just log warning, don't fail if login timeout setting is not supported
+            fprintf(stderr, "Warning: Failed to set login timeout\n");
+        }
+    }
 
     // Connect to the data source
     ret = SQLConnect(hdbc, 
@@ -96,6 +105,15 @@ ODBCDB ODBCDB::OpenWithDSN(const string &dsn, const string &username, const stri
         SQLFreeHandle(SQL_HANDLE_DBC, hdbc);
         SQLFreeHandle(SQL_HANDLE_ENV, henv);
         throw std::runtime_error("Failed to connect to DSN '" + dsn + "': " + error);
+    }
+    
+    // Apply additional connection attributes if specified
+    if (!options.additional_connection_strings.empty()) {
+        for (auto &attr_pair : options.additional_connection_strings) {
+            // This code just as an example - would need to be implemented correctly
+            // based on the specific attributes needed
+            fprintf(stderr, "Note: Additional connection attributes not fully implemented\n");
+        }
     }
 
     return ODBCDB(henv, hdbc);
@@ -142,6 +160,15 @@ ODBCDB ODBCDB::OpenWithConnectionString(const string &connection_string, const O
             fprintf(stderr, "Warning: Failed to set read-only mode\n");
         }
     }
+    
+    // Set login timeout if specified
+    if (options.login_timeout > 0) {
+        ret = SQLSetConnectAttr(hdbc, SQL_ATTR_LOGIN_TIMEOUT, (SQLPOINTER)(intptr_t)options.login_timeout, 0);
+        if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+            // Just log warning, don't fail if login timeout setting is not supported
+            fprintf(stderr, "Warning: Failed to set login timeout\n");
+        }
+    }
 
     // Connect using the connection string
     SQLCHAR outstr[1024];
@@ -177,6 +204,14 @@ bool ODBCDB::TryPrepare(const string &query, ODBCStatement &stmt) {
     SQLRETURN ret = SQLAllocHandle(SQL_HANDLE_STMT, hdbc, &hstmt);
     if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
         return false;
+    }
+    
+    // Set prefetch size to improve performance
+    SQLULEN prefetch_rows = 1000; // Adjust based on memory constraints and row size
+    ret = SQLSetStmtAttr(hstmt, SQL_ATTR_ROW_ARRAY_SIZE, (SQLPOINTER)prefetch_rows, 0);
+    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+        // Just log warning, don't fail if prefetch setting is not supported
+        fprintf(stderr, "Warning: Failed to set prefetch size\n");
     }
     
     ret = SQLPrepare(hstmt, (SQLCHAR*)query.c_str(), SQL_NTS);
@@ -300,9 +335,12 @@ void ODBCDB::GetTableInfo(const std::string &table_name, ColumnList &columns,
     SQLLEN decimal_digits_len;
     SQLSMALLINT nullable;
     SQLLEN nullable_len;
+    SQLCHAR type_name[256];
+    SQLLEN type_name_len;
     
     ret = SQLBindCol(hstmt, 4, SQL_C_CHAR, column_name, sizeof(column_name), &column_name_len);
     ret = SQLBindCol(hstmt, 5, SQL_C_SHORT, &data_type, 0, &data_type_len);
+    ret = SQLBindCol(hstmt, 6, SQL_C_CHAR, type_name, sizeof(type_name), &type_name_len);
     ret = SQLBindCol(hstmt, 7, SQL_C_ULONG, &column_size, 0, &column_size_len);
     ret = SQLBindCol(hstmt, 9, SQL_C_SHORT, &decimal_digits, 0, &decimal_digits_len);
     ret = SQLBindCol(hstmt, 11, SQL_C_SHORT, &nullable, 0, &nullable_len);
@@ -313,12 +351,28 @@ void ODBCDB::GetTableInfo(const std::string &table_name, ColumnList &columns,
     
     while (SQLFetch(hstmt) == SQL_SUCCESS) {
         std::string name((char*)column_name);
+        std::string native_type((char*)type_name, type_name_len);
         LogicalType column_type;
         
         if (all_varchar) {
             column_type = LogicalType::VARCHAR;
         } else {
-            column_type = ODBCUtils::TypeToLogicalType(data_type, column_size, decimal_digits);
+            // Check for special types based on type name
+            if (StringUtil::Contains(StringUtil::Lower(native_type), "timestamp_tz") ||
+                StringUtil::Contains(StringUtil::Lower(native_type), "timestamptz")) {
+                // Special handling for timestamp with timezone
+                column_type = LogicalType::TIMESTAMP;
+            } else {
+                // Use standard type conversion
+                column_type = ODBCUtils::TypeToLogicalType(data_type, column_size, decimal_digits);
+                
+                // Special handling for large numeric types (common in data warehouses)
+                if ((data_type == SQL_NUMERIC || data_type == SQL_DECIMAL) && 
+                    decimal_digits == 0 && column_size >= 19) {
+                    // For large integers like NUMBER(38,0) in Snowflake, use HUGEINT
+                    column_type = LogicalType::HUGEINT;
+                }
+            }
         }
         
         ColumnDefinition column(std::move(name), column_type);

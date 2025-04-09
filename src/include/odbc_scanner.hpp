@@ -7,6 +7,12 @@
 
 namespace duckdb {
 
+// Struct to define row boundaries for parallel scanning
+struct ODBCRowBounds {
+    idx_t start_row;  // Starting row (inclusive)
+    idx_t end_row;    // Ending row (exclusive)
+};
+
 struct ODBCBindData : public TableFunctionData {
     std::string connection_string;
     std::string dsn;
@@ -17,6 +23,8 @@ struct ODBCBindData : public TableFunctionData {
     std::vector<std::string> names;
     std::vector<LogicalType> types;
     bool all_varchar = false;
+    idx_t chunk_size = 0;
+    idx_t rows_per_group = 0;
     ODBCDB *global_db = nullptr;
     TableCatalogEntry *table = nullptr;
 };
@@ -28,14 +36,19 @@ struct ODBCLocalState : public LocalTableFunctionState {
     bool done = false;
     std::vector<column_t> column_ids;
     idx_t scan_count = 0;
+    idx_t chunk_size = 1024;
 };
 
 struct ODBCGlobalState : public GlobalTableFunctionState {
-    explicit ODBCGlobalState(idx_t max_threads) : max_threads(max_threads) {}
+    explicit ODBCGlobalState(idx_t max_threads) : max_threads(max_threads), current_bound_index(0) {}
 
     std::mutex lock;
     idx_t position = 0;
     idx_t max_threads;
+    
+    // For parallel scanning
+    std::vector<ODBCRowBounds> bounds;
+    idx_t current_bound_index;
 
     idx_t MaxThreads() const override {
         return max_threads;
