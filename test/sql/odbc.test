@@ -1,0 +1,14 @@
+# name: test/sql/odbc.test
+# description: test odbc extension
+# group: [odbc]
+
+
+# Require statement will ensure this test is run with this extension loaded
+require odbc
+
+# Confirm the extension works
+query I
+from odbc_query('Driver={/workspaces/duckdb-odbc-extension/drivers/libduckdb_odbc.so};Database=:memory:',
+'SELECT 42');
+----
+42
