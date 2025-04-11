@@ -81,23 +81,27 @@ bool ODBCStatement::IsOpen() {
     return hstmt != nullptr;
 }
 
-SQLSMALLINT ODBCStatement::GetODBCType(idx_t col) {
+SQLSMALLINT ODBCStatement::GetODBCType(idx_t col, SQLULEN* column_size, SQLSMALLINT* decimal_digits) {
     if (!hstmt) {
         throw std::runtime_error("Statement is not open");
     }
     
     SQLSMALLINT data_type;
-    SQLULEN column_size;
-    SQLSMALLINT decimal_digits;
+    SQLULEN size;
+    SQLSMALLINT digits;
     SQLSMALLINT nullable;
     
     SQLRETURN ret = SQLDescribeCol(hstmt, col + 1, nullptr, 0, nullptr, 
-                                  &data_type, &column_size, &decimal_digits, &nullable);
+                                  &data_type, &size, &digits, &nullable);
     
     if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
         std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
         throw std::runtime_error("Failed to get column type: " + error);
     }
+    
+    // Pass back column size and decimal digits if requested
+    if (column_size) *column_size = size;
+    if (decimal_digits) *decimal_digits = digits;
     
     return data_type;
 }

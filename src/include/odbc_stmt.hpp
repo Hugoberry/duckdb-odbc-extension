@@ -34,7 +34,7 @@ public:
     bool IsOpen();
     
     // Get the ODBC type of a column
-    SQLSMALLINT GetODBCType(idx_t col);
+    SQLSMALLINT GetODBCType(idx_t col, SQLULEN* column_size = nullptr, SQLSMALLINT* decimal_digits = nullptr);;
     
     // Get the DuckDB type of a column
     int GetType(idx_t col);

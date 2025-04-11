@@ -10,19 +10,42 @@ void ODBCUtils::Check(SQLRETURN rc, SQLSMALLINT handle_type, SQLHANDLE handle, c
 }
 
 std::string ODBCUtils::GetErrorMessage(SQLSMALLINT handle_type, SQLHANDLE handle) {
-    SQLCHAR sql_state[6];
+    SQLCHAR sql_state[6] = {0};
     SQLINTEGER native_error;
-    SQLCHAR message_text[SQL_MAX_MESSAGE_LENGTH];
-    SQLSMALLINT text_length;
+    SQLCHAR message_text[SQL_MAX_MESSAGE_LENGTH] = {0};
+    SQLSMALLINT text_length = 0;
+    duckdb::vector<std::string> error_parts;
     
-    SQLRETURN ret = SQLGetDiagRec(handle_type, handle, 1, sql_state, &native_error, 
-                                 message_text, sizeof(message_text), &text_length);
-    
-    if (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO) {
-        return std::string((char*)message_text, text_length);
-    } else {
-        return "Unknown error";
+    SQLSMALLINT i = 1;
+    while (SQLGetDiagRec(handle_type, handle, i, sql_state, &native_error,
+                        message_text, SQL_MAX_MESSAGE_LENGTH, &text_length) == SQL_SUCCESS) {
+        // Convert ODBC fields to strings
+        std::string state_str(reinterpret_cast<char*>(sql_state), 5);
+        std::string message(reinterpret_cast<char*>(message_text), text_length);
+
+        // Add context-sensitive description
+        std::string description;
+        if (state_str == "HY000") {
+            description = " (General Error)";
+        } else if (state_str == "HYT00") {
+            description = " (Timeout Expired)";
+        } else if (state_str == "08S01") {
+            description = " (Communication Link Failure)";
+        }
+
+        // Format using DuckDB's string utilities
+        auto formatted_part = StringUtil::Format("[%s] %s%s",
+            state_str.c_str(),
+            message.c_str(),
+            description.c_str()
+        );
+        
+        error_parts.push_back(formatted_part);
+        i++;
     }
+    
+    return error_parts.empty() ? "No ODBC error information available" 
+                              : StringUtil::Join(error_parts, string(" | "));
 }
 
 std::string ODBCUtils::TypeToString(SQLSMALLINT odbc_type) {
@@ -114,22 +137,7 @@ LogicalType ODBCUtils::TypeToLogicalType(SQLSMALLINT odbc_type, SQLULEN column_s
             
         case SQL_DECIMAL:
         case SQL_NUMERIC:
-            if (decimal_digits == 0) {
-                if (column_size <= 2) {
-                    return LogicalType::TINYINT;
-                } else if (column_size <= 4) {
-                    return LogicalType::SMALLINT;
-                } else if (column_size <= 9) {
-                    return LogicalType::INTEGER;
-                } else if (column_size <= 18) {
-                    return LogicalType::BIGINT;
-                } else {
-                    return LogicalType::DOUBLE;
-                }
-            } else {
-                return LogicalType::DOUBLE;
-            }
-            
+            return LogicalType::DECIMAL(column_size, decimal_digits);
         case SQL_CHAR:
         case SQL_VARCHAR:
         case SQL_LONGVARCHAR:
@@ -144,20 +152,106 @@ LogicalType ODBCUtils::TypeToLogicalType(SQLSMALLINT odbc_type, SQLULEN column_s
             return LogicalType::BLOB;
             
         case SQL_DATE:
+        case SQL_TYPE_DATE:
             return LogicalType::DATE;
-            
+        case SQL_TYPE_TIME:    
         case SQL_TIME:
             return LogicalType::TIME;
-            
+        case SQL_TYPE_TIMESTAMP:    
         case SQL_TIMESTAMP:
             return LogicalType::TIMESTAMP;
             
         case SQL_GUID:
-            return LogicalType::VARCHAR;
+            return LogicalType::UUID;
             
         default:
             return LogicalType::VARCHAR;
     }
+}
+
+bool ODBCUtils::IsBinaryType(SQLSMALLINT sqltype) {
+    switch (sqltype) {
+    case SQL_BINARY:
+    case SQL_VARBINARY:
+    case SQL_LONGVARBINARY:
+        return true;
+    }
+    return false;
+}
+
+bool ODBCUtils::IsWideType(SQLSMALLINT sqltype) {
+    switch (sqltype) {
+    case SQL_WCHAR:
+    case SQL_WVARCHAR:
+    case SQL_WLONGVARCHAR:
+    // case SQL_SS_XML:
+    // case SQL_DB2_XML:
+        return true;
+    }
+    return false;
+}
+
+bool ODBCUtils::ReadVarColumn(SQLHSTMT hstmt, SQLUSMALLINT col_idx, SQLSMALLINT ctype, 
+                             bool& isNull, std::vector<char>& result) {
+    isNull = false;
+    result.clear();
+    
+    // Determine if null terminator is needed (text vs binary)
+    const bool needsNullTerm = !IsBinaryType(ctype);
+    const size_t nullTermSize = needsNullTerm ? (IsWideType(ctype) ? sizeof(SQLWCHAR) : sizeof(SQLCHAR)) : 0;
+    
+    // Start with a reasonable buffer size
+    size_t bufferSize = 4096;
+    result.resize(bufferSize);
+    size_t totalRead = 0;
+    
+    SQLRETURN ret = SQL_SUCCESS_WITH_INFO;
+    
+    do {
+        SQLLEN cbData = 0;
+        size_t availableSpace = bufferSize - totalRead;
+        
+        ret = SQLGetData(hstmt, col_idx, ctype, 
+                        result.data() + totalRead, 
+                        (SQLLEN)availableSpace, &cbData);
+        
+        if (!SQL_SUCCEEDED(ret) && ret != SQL_NO_DATA) {
+            std::string error = GetErrorMessage(SQL_HANDLE_STMT, hstmt);
+            throw std::runtime_error("Failed to read variable data: " + error);
+        }
+        
+        if (cbData == SQL_NULL_DATA) {
+            isNull = true;
+            return true;
+        }
+        
+        if (ret == SQL_SUCCESS) {
+            // We got all the data
+            totalRead += (size_t)cbData;
+            result.resize(totalRead);
+            break;
+        } else if (ret == SQL_SUCCESS_WITH_INFO) {
+            // We need more space
+            if (cbData == SQL_NO_TOTAL) {
+                // Driver can't tell us how much data remains
+                totalRead += (availableSpace - nullTermSize);
+                bufferSize *= 2; // Double the buffer size
+            } else if ((size_t)cbData >= availableSpace) {
+                // We read what we could fit but there's more
+                totalRead += (availableSpace - nullTermSize);
+                size_t remaining = (size_t)cbData - (availableSpace - nullTermSize);
+                bufferSize = totalRead + remaining + nullTermSize;
+            } else {
+                // Unexpected case - success with info but buffer not full?
+                totalRead += (size_t)cbData;
+                break;
+            }
+            
+            result.resize(bufferSize);
+        }
+    } while (ret == SQL_SUCCESS_WITH_INFO);
+    
+    return true;
 }
 
 } // namespace duckdb

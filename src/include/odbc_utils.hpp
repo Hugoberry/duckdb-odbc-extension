@@ -1,6 +1,7 @@
 #pragma once
 
 #include "duckdb.hpp"
+#include "duckdb/common/string_util.hpp"
 #include "odbc_headers.hpp"
 #include <string>
 
@@ -25,6 +26,16 @@ public:
     
     // Convert ODBC type to DuckDB LogicalType
     static LogicalType TypeToLogicalType(SQLSMALLINT odbc_type, SQLULEN column_size, SQLSMALLINT decimal_digits);
+
+    // Method for reading variable-length data
+    static bool ReadVarColumn(SQLHSTMT hstmt, SQLUSMALLINT col_idx, SQLSMALLINT ctype, 
+        bool& isNull, std::vector<char>& result);
+
+    // Helper to determine if a type is binary
+    static bool IsBinaryType(SQLSMALLINT sqltype);
+
+    // Helper to determine if a type is wide (Unicode)
+    static bool IsWideType(SQLSMALLINT sqltype);
 };
 
 } // namespace duckdb

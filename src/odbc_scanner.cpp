@@ -4,6 +4,7 @@
 #include "duckdb/common/types/date.hpp"
 #include "duckdb/common/types/timestamp.hpp"
 #include "duckdb/common/types/time.hpp"
+#include "duckdb/common/types/uuid.hpp"
 #include "duckdb/storage/statistics/base_statistics.hpp"
 #include "duckdb/main/database_manager.hpp"
 #include "duckdb/main/attached_database.hpp"
@@ -188,7 +189,10 @@ static void ODBCScan(ClientContext &context, TableFunctionInput &data, DataChunk
         // Process each column
         for (idx_t col_idx = 0; col_idx < output.ColumnCount(); col_idx++) {
             auto &out_vec = output.data[col_idx];
-            SQLSMALLINT odbc_type = stmt.GetODBCType(col_idx);
+
+            SQLULEN column_size = 0;
+            SQLSMALLINT decimal_digits = 0;
+            SQLSMALLINT odbc_type = stmt.GetODBCType(col_idx, &column_size, &decimal_digits);
             
             // Get the NULL indicator
             SQLLEN indicator;
@@ -244,34 +248,103 @@ static void ODBCScan(ClientContext &context, TableFunctionInput &data, DataChunk
                     FlatVector::GetData<double>(out_vec)[out_idx] = value;
                     break;
                 }
-                case LogicalTypeId::VARCHAR: {
-                    // For string data, we need to handle potentially large strings
-                    char buffer[8192];
-                    SQLLEN bytes_read;
-                    SQLGetData(stmt.hstmt, col_idx + 1, SQL_C_CHAR, buffer, sizeof(buffer), &bytes_read);
+                case LogicalTypeId::DECIMAL: {
+                    auto &decimal_type = out_vec.GetType();
+                    // Get width and scale from both sources
+                    uint8_t bind_width = DecimalType::GetWidth(decimal_type);
+                    uint8_t bind_scale = DecimalType::GetScale(decimal_type);
                     
-                    if (bytes_read > 0 && bytes_read < sizeof(buffer)) {
-                        // String fits in the buffer
-                        FlatVector::GetData<string_t>(out_vec)[out_idx] = 
-                            StringVector::AddString(out_vec, buffer, bytes_read);
-                    } else if (bytes_read >= sizeof(buffer)) {
-                        // String is larger than buffer, need to handle in chunks
-                        std::string large_string(buffer, sizeof(buffer) - 1);
-                        
-                        while (bytes_read >= sizeof(buffer) - 1) {
-                            SQLGetData(stmt.hstmt, col_idx + 1, SQL_C_CHAR, buffer, sizeof(buffer), &bytes_read);
-                            if (bytes_read > 0) {
-                                size_t append_size = bytes_read < sizeof(buffer) ? bytes_read : sizeof(buffer) - 1;
-                                large_string.append(buffer, append_size);
+                    // Use scan-time information as backup if binding didn't capture it correctly
+                    uint8_t width = (bind_width > 0) ? bind_width : column_size;
+                    uint8_t scale = (bind_scale > 0) ? bind_scale : decimal_digits;
+                    
+                    // Still apply defaults if necessary
+                    if (width == 0) width = 38;  // Default width
+                    if (scale == 0) scale = 2;   // Default scale
+
+                    // Always use string representation for decimals to preserve exact values
+                    std::vector<char> decimalData;
+                    bool isNull = false;
+                    
+                    if (!ODBCUtils::ReadVarColumn(stmt.hstmt, col_idx + 1, SQL_C_CHAR, isNull, decimalData)) {
+                        FlatVector::Validity(out_vec).Set(out_idx, false);
+                        break;
+                    }
+                    
+                    if (isNull) {
+                        FlatVector::Validity(out_vec).Set(out_idx, false);
+                        break;
+                    }
+                    
+                    // Ensure null-termination for string processing
+                    if (!decimalData.empty() && decimalData.back() != '\0') {
+                        decimalData.push_back('\0');
+                    }
+                    
+                    // Process based on target storage type
+                    bool success = false;
+                    switch (decimal_type.InternalType()) {
+                        case PhysicalType::INT16: {
+                            int16_t result;
+                            success = TryDecimalStringCast<int16_t>(decimalData.data(), decimalData.size() - 1, result, width, scale);
+                            if (success) {
+                                FlatVector::GetData<int16_t>(out_vec)[out_idx] = result;
                             }
+                            break;
                         }
-                        
-                        FlatVector::GetData<string_t>(out_vec)[out_idx] = 
-                            StringVector::AddString(out_vec, large_string);
-                    } else {
-                        // Empty string
+                        case PhysicalType::INT32: {
+                            int32_t result;
+                            success = TryDecimalStringCast<int32_t>(decimalData.data(), decimalData.size() - 1, result, width, scale);
+                            if (success) {
+                                FlatVector::GetData<int32_t>(out_vec)[out_idx] = result;
+                            }
+                            break;
+                        }
+                        case PhysicalType::INT64: {
+                            int64_t result;
+                            success = TryDecimalStringCast<int64_t>(decimalData.data(), decimalData.size() - 1, result, width, scale);
+                            if (success) {
+                                FlatVector::GetData<int64_t>(out_vec)[out_idx] = result;
+                            }
+                            break;
+                        }
+                        case PhysicalType::INT128: {
+                            hugeint_t result;
+                            success = TryDecimalStringCast<hugeint_t>(decimalData.data(), decimalData.size() - 1, result, width, scale);
+                            if (success) {
+                                FlatVector::GetData<hugeint_t>(out_vec)[out_idx] = result;
+                            }
+                            break;
+                        }
+                        default:
+                            throw InternalException("Unsupported decimal storage type");
+                    }
+                    
+                    if (!success) {
+                        FlatVector::Validity(out_vec).Set(out_idx, false);
+                    }
+                    break;
+                }
+                case LogicalTypeId::VARCHAR: {
+                    std::vector<char> strData;
+                    bool isNull = false;
+                    
+                    SQLSMALLINT ctype = ODBCUtils::IsWideType(odbc_type) ? SQL_C_WCHAR : SQL_C_CHAR;
+                    if (!ODBCUtils::ReadVarColumn(stmt.hstmt, col_idx + 1, ctype, isNull, strData)) {
+                        auto &mask = FlatVector::Validity(out_vec);
+                        mask.Set(out_idx, false);
+                        break;
+                    }
+                    
+                    if (isNull) {
+                        auto &mask = FlatVector::Validity(out_vec);
+                        mask.Set(out_idx, false);
+                    } else if (strData.empty()) {
                         FlatVector::GetData<string_t>(out_vec)[out_idx] = 
                             StringVector::AddString(out_vec, "");
+                    } else {
+                        FlatVector::GetData<string_t>(out_vec)[out_idx] = 
+                            StringVector::AddString(out_vec, strData.data(), strData.size());
                     }
                     break;
                 }
@@ -297,35 +370,60 @@ static void ODBCScan(ClientContext &context, TableFunctionInput &data, DataChunk
                     FlatVector::GetData<timestamp_t>(out_vec)[out_idx] = Timestamp::FromDatetime(date_val, time_val);
                     break;
                 }
-                case LogicalTypeId::BLOB: {
-                    // For BLOB data, we need to handle potentially large binary data
-                    char buffer[8192];
+                case LogicalTypeId::UUID: {
+                    // UUIDs in ODBC are typically returned as strings in standard format
+                    char buffer[37]; // 36 chars for UUID string + null terminator
                     SQLLEN bytes_read;
-                    SQLGetData(stmt.hstmt, col_idx + 1, SQL_C_BINARY, buffer, sizeof(buffer), &bytes_read);
+                    
+                    // Fetch the UUID as a string
+                    SQLGetData(stmt.hstmt, col_idx + 1, SQL_C_CHAR, buffer, sizeof(buffer), &bytes_read);
                     
                     if (bytes_read > 0 && bytes_read < sizeof(buffer)) {
-                        // Binary data fits in the buffer
-                        FlatVector::GetData<string_t>(out_vec)[out_idx] = 
-                            StringVector::AddStringOrBlob(out_vec, buffer, bytes_read);
-                    } else if (bytes_read >= sizeof(buffer)) {
-                        // Binary data is larger than buffer, need to handle in chunks
-                        std::vector<char> large_blob;
-                        large_blob.insert(large_blob.end(), buffer, buffer + sizeof(buffer) - 1);
-                        
-                        while (bytes_read >= sizeof(buffer) - 1) {
-                            SQLGetData(stmt.hstmt, col_idx + 1, SQL_C_BINARY, buffer, sizeof(buffer), &bytes_read);
-                            if (bytes_read > 0) {
-                                size_t append_size = bytes_read < sizeof(buffer) ? bytes_read : sizeof(buffer) - 1;
-                                large_blob.insert(large_blob.end(), buffer, buffer + append_size);
+                        // Convert string UUID to DuckDB UUID format
+                        try {
+                            // Ensure null termination
+                            buffer[bytes_read] = '\0';
+                            
+                            // Parse the UUID string
+                            hugeint_t uuid_value;
+                            if (UUID::FromString(string(buffer), uuid_value)) {
+                                FlatVector::GetData<hugeint_t>(out_vec)[out_idx] = uuid_value;
+                            } else {
+                                // If parsing fails, set to NULL
+                                auto &mask = FlatVector::Validity(out_vec);
+                                mask.Set(out_idx, false);
                             }
+                        } catch (...) {
+                            // If any error occurs during conversion, set to NULL
+                            auto &mask = FlatVector::Validity(out_vec);
+                            mask.Set(out_idx, false);
                         }
-                        
-                        FlatVector::GetData<string_t>(out_vec)[out_idx] = 
-                            StringVector::AddStringOrBlob(out_vec, large_blob.data(), large_blob.size());
-                    } else {
-                        // Empty BLOB
+                    } else if (bytes_read >= sizeof(buffer)) {
+                        // UUID string is too long (should never happen for valid UUIDs)
+                        auto &mask = FlatVector::Validity(out_vec);
+                        mask.Set(out_idx, false);
+                    }
+                    break;
+                }
+                case LogicalTypeId::BLOB: {
+                    std::vector<char> blobData;
+                    bool isNull = false;
+                    
+                    if (!ODBCUtils::ReadVarColumn(stmt.hstmt, col_idx + 1, SQL_C_BINARY, isNull, blobData)) {
+                        auto &mask = FlatVector::Validity(out_vec);
+                        mask.Set(out_idx, false);
+                        break;
+                    }
+                    
+                    if (isNull) {
+                        auto &mask = FlatVector::Validity(out_vec);
+                        mask.Set(out_idx, false);
+                    } else if (blobData.empty()) {
                         FlatVector::GetData<string_t>(out_vec)[out_idx] = 
                             StringVector::AddStringOrBlob(out_vec, "", 0);
+                    } else {
+                        FlatVector::GetData<string_t>(out_vec)[out_idx] = 
+                            StringVector::AddStringOrBlob(out_vec, blobData.data(), blobData.size());
                     }
                     break;
                 }
@@ -526,8 +624,13 @@ static unique_ptr<FunctionData> QueryBind(ClientContext &context, TableFunctionB
     auto column_count = stmt.GetColumnCount();
     for (idx_t i = 0; i < column_count; i++) {
         auto column_name = stmt.GetName(i);
+        // Get full type information
+        SQLULEN column_size = 0;
+        SQLSMALLINT decimal_digits = 0;
+        SQLSMALLINT odbc_type = stmt.GetODBCType(i, &column_size, &decimal_digits);
+        
         auto column_type = result->all_varchar ? LogicalType::VARCHAR : 
-                           GetDuckDBType(stmt.GetODBCType(i), 0, 0);
+                        GetDuckDBType(odbc_type, column_size, decimal_digits);
         
         names.push_back(column_name);
         return_types.push_back(column_type);
