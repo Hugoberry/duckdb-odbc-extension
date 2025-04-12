@@ -9,7 +9,7 @@ require odbc
 query I
 SELECT CASE 
     WHEN lower(platform) LIKE '%osx%' THEN
-        (FROM odbc_query('Driver={/duckdb_build_dir/test/drivers/libduckdb_odbc.dylib};Database=:memory:', 'SELECT 42'))
+        (FROM odbc_query('Driver={/duckdb_build_dir/test/drivers/libduckdb_odbc.so};Database=:memory:', 'SELECT 42'))
     ELSE
         (FROM odbc_query('Driver={/duckdb_build_dir/test/drivers/libduckdb_odbc.so};Database=:memory:', 'SELECT 42'))
 END
