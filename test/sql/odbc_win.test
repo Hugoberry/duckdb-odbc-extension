@@ -1,0 +1,15 @@
+# name: test/sql/odbc_windows.test
+# description: test odbc extension with MS Access on Windows
+# group: [odbc]
+
+# Require statement will ensure this test is run with this extension loaded
+require odbc
+
+require windows
+
+# Test connection to MS Access database
+query I
+from odbc_query('Driver={Microsoft Access Driver (*.mdb, *.accdb)};DBQ=test/data/northwind.accdb',
+'SELECT 42 AS value');
+----
+42
