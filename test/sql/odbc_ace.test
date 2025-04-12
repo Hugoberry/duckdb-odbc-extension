@@ -1,4 +1,4 @@
-# name: test/sql/odbc_windows.test
+# name: test/sql/odbc_ace.test
 # description: test odbc extension with MS Access on Windows
 # group: [odbc]
 
@@ -9,7 +9,7 @@ require windows
 
 # Test connection to MS Access database
 query I
-from odbc_query('Driver={Microsoft Access Driver (*.mdb, *.accdb)};DBQ=D:/a/duckdb-odbc-extension/duckdb-odbc-extension/test/data/northwind.accdb',
+from odbc_query('Driver={Microsoft.ACE.OLEDB.12.0};DBQ=D:/a/duckdb-odbc-extension/duckdb-odbc-extension/test/data/northwind.accdb',
 'SELECT 42 AS value');
 ----
 42
