@@ -550,4 +550,140 @@ ODBCQueryFunction::ODBCQueryFunction()
     named_parameters["all_varchar"] = LogicalType::BOOLEAN;
 }
 
+static unique_ptr<FunctionData> DriversBind(ClientContext &context, TableFunctionBindInput &input,
+                                            vector<LogicalType> &return_types, vector<string> &names) {
+    // Define the return columns
+    names.emplace_back("driver_name");
+    return_types.emplace_back(LogicalType::VARCHAR);
+    
+    names.emplace_back("driver_attributes");
+    return_types.emplace_back(LogicalType::VARCHAR);
+    
+    names.emplace_back("driver_version");
+    return_types.emplace_back(LogicalType::VARCHAR);
+    
+    return nullptr; // No bind data needed
+}
+
+static void DriversFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
+    // Initialize result vector
+    auto &driver_name = output.data[0];
+    auto &driver_attrs = output.data[1];
+    auto &driver_ver = output.data[2];
+    
+    idx_t index = 0;
+    
+    SQLHENV henv = SQL_NULL_HANDLE;
+    SQLRETURN ret;
+    
+    // Allocate environment handle
+    ret = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &henv);
+    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+        throw std::runtime_error("Failed to allocate ODBC environment handle");
+    }
+    
+    // Set ODBC version
+    ret = SQLSetEnvAttr(henv, SQL_ATTR_ODBC_VERSION, (SQLPOINTER)SQL_OV_ODBC3, 0);
+    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+        SQLFreeHandle(SQL_HANDLE_ENV, henv);
+        throw std::runtime_error("Failed to set ODBC version");
+    }
+
+    // Buffers for driver information
+    char description[256];
+    char attributes[4096];
+    SQLSMALLINT desc_len = 0;
+    SQLSMALLINT attr_len = 0;
+    SQLRETURN direction = SQL_FETCH_FIRST;
+
+    // Fetch drivers
+    while (SQLDrivers(henv, direction, 
+                     (SQLCHAR*)description, sizeof(description), &desc_len,
+                     (SQLCHAR*)attributes, sizeof(attributes), &attr_len) == SQL_SUCCESS ||
+           SQLDrivers(henv, direction, 
+                     (SQLCHAR*)description, sizeof(description), &desc_len,
+                     (SQLCHAR*)attributes, sizeof(attributes), &attr_len) == SQL_SUCCESS_WITH_INFO) {
+        
+        direction = SQL_FETCH_NEXT;
+        
+        if (index >= STANDARD_VECTOR_SIZE) {
+            // We've reached the chunk size, return the current batch
+            output.SetCardinality(index);
+            SQLFreeHandle(SQL_HANDLE_ENV, henv);
+            return;
+        }
+
+        // Extract driver name
+        std::string driver_name_str(description, desc_len);
+        
+        // Extract attributes string
+        std::string attrs_str(attributes, attr_len);
+        
+        // Parse attributes to extract version
+        std::string version = "Unknown";
+        std::string attrs_map;
+        
+        // Process attributes which are key=value pairs separated by null characters
+        size_t pos = 0;
+        std::string attr_string(attributes, attr_len);
+        std::string key, value;
+        bool is_key = true;
+        
+        for (char c : attr_string) {
+            if (c == '\0') {
+                if (!key.empty()) {
+                    if (is_key) {
+                        // End of attribute list
+                        break;
+                    }
+                    
+                    // Process this key-value pair
+                    if (!attrs_map.empty()) {
+                        attrs_map += ", ";
+                    }
+                    attrs_map += key + "=" + value;
+                    
+                    // Check if it's a version attribute
+                    if (key == "FileVersion" || key == "DriverODBCVer") {
+                        version = value;
+                    }
+                    
+                    key.clear();
+                    value.clear();
+                    is_key = true;
+                }
+            } else {
+                if (is_key) {
+                    key += c;
+                } else {
+                    value += c;
+                }
+            }
+            
+            // Flip between key and value on '='
+            if (c == '=' && is_key) {
+                is_key = false;
+            }
+        }
+        
+        // Set output values
+        FlatVector::GetData<string_t>(driver_name)[index] = StringVector::AddString(driver_name, driver_name_str);
+        FlatVector::GetData<string_t>(driver_attrs)[index] = StringVector::AddString(driver_attrs, attrs_map);
+        FlatVector::GetData<string_t>(driver_ver)[index] = StringVector::AddString(driver_ver, version);
+        
+        index++;
+    }
+    
+    // Clean up
+    SQLFreeHandle(SQL_HANDLE_ENV, henv);
+    
+    // Set cardinality for the output
+    output.SetCardinality(index);
+}
+
+ODBCDriversFunction::ODBCDriversFunction()
+    : TableFunction("odbc_drivers", {}, DriversFunction, DriversBind) {
+    // No parameters needed
+}
+
 } // namespace duckdb

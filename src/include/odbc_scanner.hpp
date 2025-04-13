@@ -57,6 +57,11 @@ public:
     ODBCQueryFunction();
 };
 
+class ODBCDriversFunction : public TableFunction {
+public:
+    ODBCDriversFunction();
+};
+    
 LogicalType GetDuckDBType(SQLSMALLINT odbc_type, SQLULEN column_size, SQLSMALLINT decimal_digits);
 int GetODBCSQLType(const LogicalType &type);
 

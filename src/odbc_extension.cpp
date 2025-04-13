@@ -28,6 +28,10 @@ static void LoadInternal(DatabaseInstance &instance) {
     ODBCQueryFunction query_func;
     ExtensionUtil::RegisterFunction(instance, query_func);
 
+    // Register the ODBC drivers function
+    ODBCDriversFunction drivers_func;
+    ExtensionUtil::RegisterFunction(instance, drivers_func);
+
     // Add extension options
     auto &config = DBConfig::GetConfig(instance);
     config.AddExtensionOption("odbc_all_varchar", "Load all ODBC columns as VARCHAR columns", LogicalType::BOOLEAN);
