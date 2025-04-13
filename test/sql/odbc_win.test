@@ -8,8 +8,10 @@ require odbc
 require windows
 
 # Print all available ODBC drivers for debugging
-statement ok
-SELECT * FROM odbc_drivers() ORDER BY driver_name;
+query II
+FROM odbc_drivers();
+----
+sqlserver   duckdb
 
 # Test connection to MS Access database
 query I

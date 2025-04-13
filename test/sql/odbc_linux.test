@@ -14,12 +14,10 @@ from glob('/duckdb_build_dir/**');
 
 # First try using a relative path that should work in most environments
 query I
-FROM odbc_query('Driver=./test/drivers/libduckdb_odbc.so;Database=:memory:', 'SELECT 42')
+FROM odbc_query('Driver=/workspaces/duckdb-odbc-extension/test/drivers/libduckdb_odbc.so;Database=:memory:', 'SELECT 42')
 ----
 42
 
-# Fallback test in case the first one fails
-query I
-FROM odbc_query('Driver=/duckdb_build_dir/test/drivers/libduckdb_odbc.so;Database=:memory:', 'SELECT 42')
+query II
+from odbc_drivers();
 ----
-42
