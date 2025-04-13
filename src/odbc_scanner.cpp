@@ -550,140 +550,133 @@ ODBCQueryFunction::ODBCQueryFunction()
     named_parameters["all_varchar"] = LogicalType::BOOLEAN;
 }
 
-static unique_ptr<FunctionData> DriversBind(ClientContext &context, TableFunctionBindInput &input,
-                                            vector<LogicalType> &return_types, vector<string> &names) {
-    // Define the return columns
-    names.emplace_back("driver_name");
-    return_types.emplace_back(LogicalType::VARCHAR);
-    
-    names.emplace_back("driver_attributes");
-    return_types.emplace_back(LogicalType::VARCHAR);
-    
-    names.emplace_back("driver_version");
-    return_types.emplace_back(LogicalType::VARCHAR);
-    
-    return nullptr; // No bind data needed
-}
+struct ODBCDriversBindData : public TableFunctionData {
+    // Store drivers information at bind time
+    std::vector<std::pair<std::string, std::string>> drivers; // (name, attributes)
+};
 
-static void DriversFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
-    // Initialize result vector
-    auto &driver_name = output.data[0];
-    auto &driver_attrs = output.data[1];
-    auto &driver_ver = output.data[2];
+struct ODBCDriversLocalState : public LocalTableFunctionState {
+    idx_t offset = 0;  // Track current position in the drivers list
+    bool done = false;
+};
+
+static unique_ptr<FunctionData> ODBCDriversBind(ClientContext &context, TableFunctionBindInput &input,
+                                          vector<LogicalType> &return_types, vector<string> &names) {
+    auto result = make_uniq<ODBCDriversBindData>();
     
-    idx_t index = 0;
+    // Setup return types and names
+    names.push_back("driver_name");
+    return_types.push_back(LogicalType::VARCHAR);
     
-    SQLHENV henv = SQL_NULL_HANDLE;
+    names.push_back("attributes");
+    return_types.push_back(LogicalType::VARCHAR);
+    
+#ifdef _WIN32
+    // On Windows, retrieve the list of drivers
+    SQLHENV env;
     SQLRETURN ret;
     
     // Allocate environment handle
-    ret = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &henv);
+    ret = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &env);
     if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        throw std::runtime_error("Failed to allocate ODBC environment handle");
+        return result; // Return empty result on error
     }
     
     // Set ODBC version
-    ret = SQLSetEnvAttr(henv, SQL_ATTR_ODBC_VERSION, (SQLPOINTER)SQL_OV_ODBC3, 0);
+    ret = SQLSetEnvAttr(env, SQL_ATTR_ODBC_VERSION, (SQLPOINTER)SQL_OV_ODBC3, 0);
     if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        SQLFreeHandle(SQL_HANDLE_ENV, henv);
-        throw std::runtime_error("Failed to set ODBC version");
-    }
-
-    // Buffers for driver information
-    char description[256];
-    char attributes[4096];
-    SQLSMALLINT desc_len = 0;
-    SQLSMALLINT attr_len = 0;
-    SQLRETURN direction = SQL_FETCH_FIRST;
-
-    // Fetch drivers
-    while (SQLDrivers(henv, direction, 
-                     (SQLCHAR*)description, sizeof(description), &desc_len,
-                     (SQLCHAR*)attributes, sizeof(attributes), &attr_len) == SQL_SUCCESS ||
-           SQLDrivers(henv, direction, 
-                     (SQLCHAR*)description, sizeof(description), &desc_len,
-                     (SQLCHAR*)attributes, sizeof(attributes), &attr_len) == SQL_SUCCESS_WITH_INFO) {
-        
-        direction = SQL_FETCH_NEXT;
-        
-        if (index >= STANDARD_VECTOR_SIZE) {
-            // We've reached the chunk size, return the current batch
-            output.SetCardinality(index);
-            SQLFreeHandle(SQL_HANDLE_ENV, henv);
-            return;
-        }
-
-        // Extract driver name
-        std::string driver_name_str(description, desc_len);
-        
-        // Extract attributes string
-        std::string attrs_str(attributes, attr_len);
-        
-        // Parse attributes to extract version
-        std::string version = "Unknown";
-        std::string attrs_map;
-        
-        // Process attributes which are key=value pairs separated by null characters
-        size_t pos = 0;
-        std::string attr_string(attributes, attr_len);
-        std::string key, value;
-        bool is_key = true;
-        
-        for (char c : attr_string) {
-            if (c == '\0') {
-                if (!key.empty()) {
-                    if (is_key) {
-                        // End of attribute list
-                        break;
-                    }
-                    
-                    // Process this key-value pair
-                    if (!attrs_map.empty()) {
-                        attrs_map += ", ";
-                    }
-                    attrs_map += key + "=" + value;
-                    
-                    // Check if it's a version attribute
-                    if (key == "FileVersion" || key == "DriverODBCVer") {
-                        version = value;
-                    }
-                    
-                    key.clear();
-                    value.clear();
-                    is_key = true;
-                }
-            } else {
-                if (is_key) {
-                    key += c;
-                } else {
-                    value += c;
-                }
-            }
-            
-            // Flip between key and value on '='
-            if (c == '=' && is_key) {
-                is_key = false;
-            }
-        }
-        
-        // Set output values
-        FlatVector::GetData<string_t>(driver_name)[index] = StringVector::AddString(driver_name, driver_name_str);
-        FlatVector::GetData<string_t>(driver_attrs)[index] = StringVector::AddString(driver_attrs, attrs_map);
-        FlatVector::GetData<string_t>(driver_ver)[index] = StringVector::AddString(driver_ver, version);
-        
-        index++;
+        SQLFreeHandle(SQL_HANDLE_ENV, env);
+        return result; // Return empty result on error
     }
     
-    // Clean up
-    SQLFreeHandle(SQL_HANDLE_ENV, henv);
+    // Retrieve driver information
+    SQLCHAR driver_desc[256];
+    SQLCHAR driver_attr[256];
+    SQLSMALLINT desc_len, attr_len;
     
-    // Set cardinality for the output
-    output.SetCardinality(index);
+    ret = SQLDrivers(env, SQL_FETCH_FIRST, driver_desc, sizeof(driver_desc), &desc_len,
+                    driver_attr, sizeof(driver_attr), &attr_len);
+                    
+    while (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO) {
+        // Add driver to the list
+        std::string name((char*)driver_desc, desc_len);
+        std::string attributes((char*)driver_attr, attr_len);
+        
+        result->drivers.push_back({name, attributes});
+        
+        // Get next driver
+        ret = SQLDrivers(env, SQL_FETCH_NEXT, driver_desc, sizeof(driver_desc), &desc_len,
+                       driver_attr, sizeof(driver_attr), &attr_len);
+    }
+    
+    // Free environment handle
+    SQLFreeHandle(SQL_HANDLE_ENV, env);
+#endif
+    
+    return std::move(result);
+}
+
+static unique_ptr<GlobalTableFunctionState> ODBCDriversInitGlobalState(ClientContext &context,
+                                                               TableFunctionInitInput &input) {
+    return make_uniq<ODBCGlobalState>(1); // Single-threaded scan
+}
+
+static unique_ptr<LocalTableFunctionState>
+ODBCDriversInitLocalState(ExecutionContext &context, TableFunctionInitInput &input, GlobalTableFunctionState *global_state) {
+    return make_uniq<ODBCDriversLocalState>();
+}
+
+static void ODBCDriversScan(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
+    auto &bind_data = data.bind_data->Cast<ODBCDriversBindData>();
+    auto &local_state = data.local_state->Cast<ODBCDriversLocalState>();
+    
+    if (local_state.done) {
+        return;
+    }
+    
+    const auto &drivers = bind_data.drivers;
+    idx_t remaining = drivers.size() - local_state.offset;
+    
+    // If no more data, return empty result
+    if (remaining == 0) {
+        local_state.done = true;
+        output.SetCardinality(0);
+        return;
+    }
+    
+    // Calculate how many rows to return in this chunk
+    idx_t count = std::min(remaining, (idx_t)STANDARD_VECTOR_SIZE);
+    
+    // Set up the vectors
+    auto &name_vec = output.data[0];
+    auto &attr_vec = output.data[1];
+    
+    // Fill the vectors with data
+    for (idx_t i = 0; i < count; i++) {
+        idx_t idx = local_state.offset + i;
+        const auto &driver = drivers[idx];
+        
+        // Driver name
+        FlatVector::GetData<string_t>(name_vec)[i] = StringVector::AddString(name_vec, driver.first);
+        
+        // Driver attributes
+        FlatVector::GetData<string_t>(attr_vec)[i] = StringVector::AddString(attr_vec, driver.second);
+    }
+    
+    // Update local state
+    local_state.offset += count;
+    if (local_state.offset >= drivers.size()) {
+        local_state.done = true;
+    }
+    
+    // Set the output cardinality
+    output.SetCardinality(count);
 }
 
 ODBCDriversFunction::ODBCDriversFunction()
-    : TableFunction("odbc_drivers", {}, DriversFunction, DriversBind) {
-    // No parameters needed
+    : TableFunction("odbc_drivers", {}, ODBCDriversScan, ODBCDriversBind,
+                    ODBCDriversInitGlobalState, ODBCDriversInitLocalState) {
+    // No special parameters needed
 }
 
 } // namespace duckdb

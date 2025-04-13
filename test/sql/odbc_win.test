@@ -7,6 +7,10 @@ require odbc
 
 require windows
 
+# Print all available ODBC drivers for debugging
+statement ok
+SELECT * FROM odbc_drivers() ORDER BY driver_name;
+
 # Test connection to MS Access database
 query I
 from odbc_query('Driver={Microsoft Access Driver (*.mdb, *.accdb)};DBQ=D:/a/duckdb-odbc-extension/duckdb-odbc-extension/test/data/northwind.accdb',
