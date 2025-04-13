@@ -8,6 +8,7 @@
 #include "duckdb/main/database_manager.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include <cmath>
+#include <algorithm>
 
 namespace duckdb {
 
