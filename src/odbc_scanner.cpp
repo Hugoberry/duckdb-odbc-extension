@@ -646,7 +646,7 @@ static void ODBCDriversScan(ClientContext &context, TableFunctionInput &data, Da
     }
     
     // Calculate how many rows to return in this chunk
-    idx_t count = std::min(remaining, (idx_t)STANDARD_VECTOR_SIZE);
+    idx_t count =  remaining;
     
     // Set up the vectors
     auto &name_vec = output.data[0];
