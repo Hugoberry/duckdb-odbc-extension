@@ -6,6 +6,9 @@ require notwindows
 # Require statement will ensure this test is run with this extension loaded
 require odbc
 
+statement ok
+from glob('*');
+
 # First try using a relative path that should work in most environments
 query I
 FROM odbc_query('Driver=./test/drivers/libduckdb_odbc.so;Database=:memory:', 'SELECT 42')
