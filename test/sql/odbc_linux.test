@@ -1,18 +1,19 @@
 # name: test/sql/odbc_platform.test
 # description: test odbc extension
 # group: [odbc]
+require notwindows
 
 # Require statement will ensure this test is run with this extension loaded
 require odbc
 
-# Check platform and use the appropriate driver path
+# First try using a relative path that should work in most environments
 query I
-SELECT CASE 
-    WHEN lower(platform) LIKE '%osx%' THEN
-        (FROM odbc_query('Driver={/duckdb_build_dir/test/drivers/libduckdb_odbc.so};Database=:memory:', 'SELECT 42'))
-    ELSE
-        (FROM odbc_query('Driver={/duckdb_build_dir/test/drivers/libduckdb_odbc.so};Database=:memory:', 'SELECT 42'))
-END
-FROM pragma_platform();
+FROM odbc_query('Driver=./test/drivers/libduckdb_odbc.so;Database=:memory:', 'SELECT 42')
+----
+42
+
+# Fallback test in case the first one fails
+query I
+FROM odbc_query('Driver=/duckdb_build_dir/test/drivers/libduckdb_odbc.so;Database=:memory:', 'SELECT 42')
 ----
 42
