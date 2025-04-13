@@ -1,4 +1,4 @@
-# name: test/sql/odbc_platform.test
+# name: test/sql/odbc_test.test
 # description: test odbc extension
 # group: [odbc]
 require notwindows
@@ -7,7 +7,7 @@ require notwindows
 require odbc
 
 query I
-from glob('/duckdb_build_dir/**');
+from glob('*');
 ----
 
 # First try using a relative path that should work in most environments
