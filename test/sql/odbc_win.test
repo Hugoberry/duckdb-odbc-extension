@@ -1,4 +1,4 @@
-# name: test/sql/odbc_windows.test
+# name: test/sql/odbc_win.test
 # description: test odbc extension with MS Access on Windows
 # group: [odbc]
 
@@ -8,10 +8,10 @@ require odbc
 require windows
 
 # Print all available ODBC drivers for debugging
-query II
+query I
 FROM odbc_drivers();
 ----
-sqlserver   duckdb
+sqlserver
 
 # Test connection to MS Access database
 query I

@@ -7,7 +7,7 @@ require notwindows
 require odbc
 
 query I
-from glob('/duckdb_build_dir/**');
+from glob('test/**');
 ----
 
 # First try using a relative path that should work in most environments
