@@ -1,0 +1,12 @@
+# name: test/sql/odbc_linux_odbcini.test
+# description: test odbc extension
+# group: [odbc]
+require notwindows
+
+# First try using a relative path that should work in most environments
+query I
+FROM read_text('/usr/local/etc/odbc.ini')
+----
+42
+
+
