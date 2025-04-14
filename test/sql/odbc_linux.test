@@ -9,7 +9,7 @@ require odbc
 
 # First try using a relative path that should work in most environments
 query I
-FROM odbc_query('Driver=/home/runner/work/duckdb-odbc-extension/duckdb-odbc-extension/test/drivers/libduckdb_odbc.so;Database=:memory:', 'SELECT 42')
+FROM odbc_query('Driver=/Users/runner/work/duckdb-odbc-extension/duckdb-odbc-extension/test/drivers/libduckdb_odbc.dylib;Database=:memory:', 'SELECT 42')
 ----
 42
 
