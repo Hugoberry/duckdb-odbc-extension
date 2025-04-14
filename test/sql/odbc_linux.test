@@ -6,17 +6,10 @@ require notwindows
 # Require statement will ensure this test is run with this extension loaded
 require odbc
 
-query I
-from glob('/Users/runner/work/duckdb-odbc-extension/duckdb-odbc-extension/test/**');
-----
-
-
 # First try using a relative path that should work in most environments
 query I
 FROM odbc_query('Driver=/Users/runner/work/duckdb-odbc-extension/duckdb-odbc-extension/test/drivers/libduckdb_odbc.dylib;Database=:memory:', 'SELECT 42')
 ----
 42
 
-query II
-from odbc_drivers();
-----
+

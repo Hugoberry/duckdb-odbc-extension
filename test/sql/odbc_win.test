@@ -10,6 +10,8 @@ require windows
 statement error
 from odbc_query('Driver={ODBC Driver 17 for SQL Server};Server=(LocalDB)\MSSQLLocalDB;Database=master;Trusted_Connection=Yes;',
 'SELECT 42 AS value');
+----
+Invalid Error: Failed to connect with connection string: [Microsoft][ODBC Driver 17 for SQL Server]Unable to complete login process due to delay in opening server connection
 
 # Test connection to MS Access database
 query I
