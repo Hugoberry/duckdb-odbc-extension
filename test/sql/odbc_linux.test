@@ -7,12 +7,12 @@ require notwindows
 require odbc
 
 query I
-from glob('test/**');
+from glob('__TEST_DIR__/**');
 ----
 
 # First try using a relative path that should work in most environments
 query I
-FROM odbc_query('Driver=/workspaces/duckdb-odbc-extension/test/drivers/libduckdb_odbc.so;Database=:memory:', 'SELECT 42')
+FROM odbc_query('Driver=test/drivers/libduckdb_odbc.so;Database=:memory:', 'SELECT 42')
 ----
 42
 
