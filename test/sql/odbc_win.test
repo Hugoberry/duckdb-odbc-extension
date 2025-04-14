@@ -9,7 +9,7 @@ require windows
 
 # Test connection to MS Access database
 query I
-from odbc_query('Driver={ODBC Driver 17 for SQL Server};Server=(LocalDB)\MSSQLLocalDB;AttachDbFilename=D:/a/duckdb-odbc-extension/duckdb-odbc-extension/test/data/northwind.mdf;Database=Northwind;Trusted_Connection=Yes;',
+from odbc_query('Driver={ODBC Driver 17 for SQL Server};Server=(LocalDB)\MSSQLLocalDB;AttachDbFilename=D:/a/duckdb-odbc-extension/duckdb-odbc-extension/test/data/northwind.mdf;Database=Northwind;Integrated Security=SSPI;Connect Timeout=90;',
 'SELECT 42 AS value');
 ----
 42
