@@ -7,12 +7,6 @@ require odbc
 
 require windows
 
-# Print all available ODBC drivers for debugging
-query I
-FROM odbc_drivers();
-----
-sqlserver
-
 # Test connection to MS Access database
 query I
 from odbc_query('Driver={ODBC Driver 17 for SQL Server};Server=(LocalDB)\MSSQLLocalDB;AttachDbFilename=D:/a/duckdb-odbc-extension/duckdb-odbc-extension/test/data/northwind.mdf;Database=Northwind;Trusted_Connection=Yes;',

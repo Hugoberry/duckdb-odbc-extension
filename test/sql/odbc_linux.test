@@ -7,7 +7,7 @@ require notwindows
 require odbc
 
 query I
-from glob('__TEST_DIR__/**');
+from glob('__TEST_DIR__/../**');
 ----
 
 # First try using a relative path that should work in most environments
