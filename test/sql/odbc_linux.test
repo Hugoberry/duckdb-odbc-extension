@@ -6,6 +6,10 @@ require notwindows
 # Require statement will ensure this test is run with this extension loaded
 require odbc
 
+query I
+from glob('/Users/runner/work/duckdb-odbc-extension/duckdb-odbc-extension/test/**');
+----
+
 
 # First try using a relative path that should work in most environments
 query I

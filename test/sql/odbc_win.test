@@ -7,9 +7,13 @@ require odbc
 
 require windows
 
+statement error
+from odbc_query('Driver={ODBC Driver 17 for SQL Server};Server=(LocalDB)\MSSQLLocalDB;Database=master;Trusted_Connection=Yes;',
+'SELECT 42 AS value');
+
 # Test connection to MS Access database
 query I
-from odbc_query('Driver={ODBC Driver 17 for SQL Server};Server=(LocalDB)\MSSQLLocalDB;Database=master;Trusted_Connection=Yes;',
+from odbc_query('Driver={ODBC Driver 17 for SQL Server};Server=(LocalDB)\MSSQLLocalDB;Database=master;Trusted_Connection=Yes;Connection Timeout=90;',
 'SELECT 42 AS value');
 ----
 42
