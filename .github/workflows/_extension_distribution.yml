@@ -284,7 +284,6 @@ jobs:
         run: |
           make configure_ci
       - name: Verify DuckDB ODBC Driver (inside Docker)
-        if: ${{ matrix.duckdb_arch == 'linux_amd64' }}
         run: |
             docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir -v `pwd`/ccache_dir:/ccache_dir duckdb/${{ matrix.duckdb_arch }} bash -c "
               echo '===== ODBC Drivers After Installation ====='
@@ -345,8 +344,6 @@ jobs:
       GEN: ninja
       BUILD_SHELL: ${{ inputs.build_duckdb_shell && '1' || '0' }}
       DUCKDB_PLATFORM: ${{ matrix.duckdb_arch }}
-      ODBCINI: /usr/local/etc/odbc.ini
-      ODBCSYSINI: /usr/local/etc
 
     steps:
       - name: Export GitHub Actions cache environment variables
@@ -379,21 +376,29 @@ jobs:
         run: |
           chmod +x ./scripts/install_duckdb_odbc_macos.sh
           ./scripts/install_duckdb_odbc_macos.sh
-      - name: Verify DuckDB ODBC Driver (macOS)
+      - name: Set ODBC environment variables (macOS)
         if: matrix.duckdb_arch == 'osx_arm64'
         run: |
             # Determine the correct Homebrew path
             if [ -d "/opt/homebrew/etc" ]; then
               # For Apple Silicon Macs
-              HOMEBREW_ETC="/opt/homebrew/etc"
+              echo "ODBCSYSINI=/opt/homebrew/etc" >> $GITHUB_ENV
+              echo "ODBCINI=/opt/homebrew/etc/odbc.ini" >> $GITHUB_ENV
+              echo "Using Apple Silicon Mac paths for ODBC configuration"
             else
               # For Intel Macs
-              HOMEBREW_ETC="/usr/local/etc"
+              echo "ODBCSYSINI=/usr/local/etc" >> $GITHUB_ENV
+              echo "ODBCINI=/usr/local/etc/odbc.ini" >> $GITHUB_ENV
+              echo "Using Intel Mac paths for ODBC configuration"
             fi
             
-            echo "Using Homebrew config directory: $HOMEBREW_ETC"
-            echo "===== ODBC Drivers After Installation ====="
-            cat $HOMEBREW_ETC/odbcinst.ini || echo "No odbcinst.ini file found"
+            # Print the current ODBC config to help with debugging
+            echo "ODBC configuration will use:"
+            echo "ODBCSYSINI: $ODBCSYSINI"
+            echo "ODBCINI: $ODBCINI"
+      - name: Verify DuckDB ODBC Driver (macOS)
+        if: matrix.duckdb_arch == 'osx_arm64'
+        run: |
             odbcinst -q -d || echo "odbcinst command not available or no drivers found"
             
             echo "===== Testing DuckDB ODBC Driver ====="
@@ -482,6 +487,7 @@ jobs:
         if: ${{ matrix.osx_build_arch == 'arm64' && inputs.skip_tests == false }}
         shell: bash
         run: |
+          echo "Using ODBC configuration at ODBCSYSINI=$ODBCSYSINI, ODBCINI=$ODBCINI"
           make test_release
       - uses: actions/upload-artifact@v4
         with:
@@ -514,8 +520,6 @@ jobs:
       CC: ${{ (matrix.duckdb_arch == 'windows_amd64_rtools' || matrix.duckdb_arch == 'windows_amd64_mingw') && 'gcc' || '' }}
       CXX: ${{ (matrix.duckdb_arch == 'windows_amd64_rtools' || matrix.duckdb_arch == 'windows_amd64_mingw') && 'g++' || '' }}
       GEN: ninja
-      ODBCINI: C:\Windows\ODBC.INI
-      ODBCSYSINI: C:\Windows
 
     steps:
       - name: Export GitHub Actions cache environment variables
@@ -571,11 +575,6 @@ jobs:
         shell: powershell
         run: |
           ./scripts/install_duckdb_odbc_windows.ps1
-      - name: Verify DuckDB ODBC Driver (Windows)
-        if: matrix.duckdb_arch == 'windows_amd64'
-        shell: powershell
-        run: |
-            Get-OdbcDriver | Format-Table -AutoSize
       - name: Setup Ccache
         uses: hendrikmuhs/ccache-action@main
         continue-on-error: true
