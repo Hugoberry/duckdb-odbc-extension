@@ -80,7 +80,6 @@ DuckDB Driver = Installed
 Description = DuckDB ODBC Driver
 Driver = $DRIVER_DEST
 Setup = $DRIVER_DEST
-UsageCount = 1
 EOF
 
 # Create a DSN in odbc.ini
