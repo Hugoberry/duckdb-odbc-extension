@@ -109,7 +109,7 @@ echo "ODBCSYSINI=$HOMEBREW_ETC" >> $GITHUB_ENV
 echo "ODBCINI=$HOMEBREW_ETC/odbc.ini" >> $GITHUB_ENV
 
 # Test the installation
-echo "===== Testing DuckDB ODBC Driver ====="
-isql -v DuckDB || echo "Could not connect to DuckDB DSN, but continuing anyway"
+# echo "===== Testing DuckDB ODBC Driver ====="
+# isql -v DuckDB || echo "Could not connect to DuckDB DSN, but continuing anyway"
 
-echo "===== DuckDB ODBC Driver Installation Complete ====="
+# echo "===== DuckDB ODBC Driver Installation Complete ====="

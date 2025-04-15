@@ -13,14 +13,16 @@ RUN apt-get install -y -qq ccache
 # Install additional ODBC packages
 RUN apt-get install -y -qq unixodbc odbcinst
 
+# Copy our bash-only installation script into the image
+COPY scripts/install_duckdb_odbc_linux.sh /tmp/
+
 # Install DuckDB ODBC Driver
 RUN mkdir -p /duckdb_odbc && \
     wget https://github.com/duckdb/duckdb-odbc/releases/download/v1.2.2/duckdb_odbc-linux-amd64.zip && \
     unzip duckdb_odbc-linux-amd64.zip -d /duckdb_odbc && \
     cd /duckdb_odbc && \
-    chmod +x unixodbc_setup.sh && \
-    ./unixodbc_setup.sh -u && \
-    cp libduckdb_odbc.so /usr/lib/ && \
+    chmod +x /tmp/install_duckdb_odbc_linux.sh && \
+    /tmp/install_duckdb_odbc_linux.sh -s && \
     ldconfig && \
     rm -f duckdb_odbc-linux-amd64.zip
 
