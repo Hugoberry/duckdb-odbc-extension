@@ -65,10 +65,7 @@ jobs:
         shell: powershell
         run: |
           Write-Host "===== ODBC Drivers Before Installation ====="
-          Get-ItemProperty 'HKLM:\SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers' -ErrorAction SilentlyContinue | Format-Table -AutoSize
-          Get-ChildItem 'HKLM:\SOFTWARE\ODBC\ODBCINST.INI' -ErrorAction SilentlyContinue | 
-            Where-Object { $_.Name -notmatch 'ODBC Drivers$' } | 
-            ForEach-Object { Write-Host $_.PSChildName }
+          Get-OdbcDriver | Format-Table -AutoSize
       
       # Step 2: Install ODBC Driver Manager (Linux)
       - name: Install ODBC Driver Manager (Linux)
