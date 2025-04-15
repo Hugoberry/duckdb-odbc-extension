@@ -2,15 +2,7 @@
 set -e
 
 echo "===== Installing SQLite and SQLite ODBC Driver ====="
-brew install sqlite
 brew install sqliteodbc
-brew install unixodbc
-
-echo "SQLite version installed:"
-sqlite3 --version
-
-echo "SQLite ODBC version installed:"
-brew info sqliteodbc | grep "sqliteodbc:"
 
 # Determine the correct Homebrew path
 if [ -d "/opt/homebrew/etc" ]; then
