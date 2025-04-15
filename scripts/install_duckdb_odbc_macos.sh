@@ -17,10 +17,6 @@ ls -la duckdb_odbc/
 echo "Checking dynamic library information:"
 otool -L duckdb_odbc/libduckdb_odbc.dylib
 
-# Install unixODBC dependencies properly
-echo "Installing unixODBC with proper configuration:"
-brew install unixodbc
-brew list unixodbc
 
 # Find the unixODBC installation location
 UNIXODBC_LIB=$(brew --prefix unixodbc)/lib
