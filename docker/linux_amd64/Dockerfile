@@ -10,6 +10,20 @@ RUN apt-get install -y -qq software-properties-common
 RUN apt-get install -y -qq --fix-missing ninja-build make gcc-multilib g++-multilib libssl-dev wget openjdk-8-jdk zip maven unixodbc-dev libc6-dev-i386 lib32readline6-dev libssl-dev libcurl4-gnutls-dev libexpat1-dev gettext unzip build-essential checkinstall libffi-dev curl libz-dev openssh-client pkg-config autoconf
 RUN apt-get install -y -qq ccache
 
+# Install additional ODBC packages
+RUN apt-get install -y -qq unixodbc odbcinst
+
+# Install DuckDB ODBC Driver
+RUN mkdir -p /duckdb_odbc && \
+    wget https://github.com/duckdb/duckdb-odbc/releases/download/v1.2.2/duckdb_odbc-linux-amd64.zip && \
+    unzip duckdb_odbc-linux-amd64.zip -d /duckdb_odbc && \
+    cd /duckdb_odbc && \
+    chmod +x unixodbc_setup.sh && \
+    ./unixodbc_setup.sh -u && \
+    cp libduckdb_odbc.so /usr/lib/ && \
+    ldconfig && \
+    rm -f duckdb_odbc-linux-amd64.zip
+
 # Install cmake 3.31
 RUN mkdir /cmake_3_31 && \
     cd /cmake_3_31 && \

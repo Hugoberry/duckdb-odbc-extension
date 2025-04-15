@@ -17,6 +17,19 @@ RUN yum install -y ccache
 RUN yum install -y java-11-openjdk-devel maven
 RUN yum install -y libgcc*i686 libstdc++*i686 glibc*i686 libgfortran*i686
 
+# Install ODBC Driver Manager
+RUN yum install -y unixODBC unixODBC-devel
+
+# Install DuckDB ODBC Driver
+RUN mkdir -p /duckdb_odbc && \
+    curl -L -o /duckdb_odbc/duckdb_odbc-linux-amd64.zip https://github.com/duckdb/duckdb-odbc/releases/download/v1.2.2/duckdb_odbc-linux-amd64.zip && \
+    unzip /duckdb_odbc/duckdb_odbc-linux-amd64.zip -d /duckdb_odbc && \
+    cd /duckdb_odbc && \
+    chmod +x unixodbc_setup.sh && \
+    ./unixodbc_setup.sh -u && \
+    cp libduckdb_odbc.so /usr/lib64/ && \
+    ldconfig
+
 # Setup VCPKG n a mounted volume TODO: figure out how to cache this
 ARG vcpkg_url
 ARG vcpkg_commit
