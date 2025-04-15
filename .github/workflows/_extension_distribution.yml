@@ -366,22 +366,8 @@ jobs:
       - name: Download and Setup DuckDB ODBC Driver (macOS)
         if: matrix.duckdb_arch == 'osx_arm64'
         run: |
-          mkdir -p duckdb_odbc
-          curl -L -o duckdb_odbc-osx-universal.zip https://github.com/duckdb/duckdb-odbc/releases/download/v1.2.2/duckdb_odbc-osx-universal.zip
-          unzip duckdb_odbc-osx-universal.zip -d duckdb_odbc
-          
-          # Create odbcinst.ini file with DuckDB driver definition
-          echo "[DuckDB Driver]" | sudo tee -a /usr/local/etc/odbcinst.ini
-          echo "Description=DuckDB ODBC Driver" | sudo tee -a /usr/local/etc/odbcinst.ini
-          echo "Driver=$(pwd)/duckdb_odbc/libduckdb_odbc.dylib" | sudo tee -a /usr/local/etc/odbcinst.ini
-          echo "Setup=$(pwd)/duckdb_odbc/libduckdb_odbc.dylib" | sudo tee -a /usr/local/etc/odbcinst.ini
-          echo "UsageCount=1" | sudo tee -a /usr/local/etc/odbcinst.ini
-          
-          # Create a DSN in odbc.ini
-          echo "[DuckDB]" | sudo tee -a /usr/local/etc/odbc.ini
-          echo "Description=DuckDB Database" | sudo tee -a /usr/local/etc/odbc.ini
-          echo "Driver=DuckDB Driver" | sudo tee -a /usr/local/etc/odbc.ini
-          echo "Database=:memory:" | sudo tee -a /usr/local/etc/odbc.ini
+          chmod +x ./scripts/install_duckdb_odbc_macos.sh
+          ./scripts/install_duckdb_odbc_macos.sh
       - name: Setup Ccache
         uses: hendrikmuhs/ccache-action@main
         continue-on-error: true
@@ -550,13 +536,9 @@ jobs:
           choco install ninja -y
       - name: Download and Setup DuckDB ODBC Driver (Windows)
         if: matrix.duckdb_arch == 'windows_amd64'
-        shell: cmd
+        shell: powershell
         run: |
-          mkdir duckdb_odbc
-          curl -L -o duckdb_odbc.zip https://github.com/duckdb/duckdb-odbc/releases/download/v1.2.2/duckdb_odbc-windows-amd64.zip
-          powershell -Command "Expand-Archive -Path duckdb_odbc.zip -DestinationPath duckdb_odbc"
-          cd duckdb_odbc
-          .\odbc_install.exe
+          ./scripts/install_duckdb_odbc_windows.ps1
       - name: Setup Ccache
         uses: hendrikmuhs/ccache-action@main
         continue-on-error: true
