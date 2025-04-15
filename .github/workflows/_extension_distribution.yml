@@ -283,6 +283,21 @@ jobs:
           LINUX_CI_IN_DOCKER: 0
         run: |
           make configure_ci
+      - name: Verify DuckDB ODBC Driver (inside Docker)
+        if: ${{ matrix.duckdb_arch == 'linux_amd64' }}
+        run: |
+            docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir -v `pwd`/ccache_dir:/ccache_dir duckdb/${{ matrix.duckdb_arch }} bash -c "
+              echo '===== ODBC Drivers After Installation ====='
+              cat /etc/odbcinst.ini || echo 'No odbcinst.ini file found'
+              odbcinst -q -d || echo 'odbcinst command not available or no drivers found'
+              
+              echo '===== Testing DuckDB ODBC Driver ====='
+              # Make sure the ODBC environment variables are set correctly
+              export ODBCINI=/etc/odbc.ini
+              export ODBCSYSINI=/etc
+              # Try connecting to the DSN
+              isql -v DuckDB || echo 'Could not connect to DuckDB DSN'
+            "
       - name: Run configure (inside Docker)
         shell: bash
         run: |
@@ -359,15 +374,32 @@ jobs:
       - name: Install Ninja
         run: |
           brew install ninja autoconf make libtool automake autoconf-archive
-      - name: Install ODBC Driver Manager (macOS)
-        if: matrix.duckdb_arch == 'osx_arm64'
-        run: |
-          brew install unixodbc
       - name: Download and Setup DuckDB ODBC Driver (macOS)
         if: matrix.duckdb_arch == 'osx_arm64'
         run: |
           chmod +x ./scripts/install_duckdb_odbc_macos.sh
           ./scripts/install_duckdb_odbc_macos.sh
+      - name: Verify DuckDB ODBC Driver (macOS)
+        if: matrix.duckdb_arch == 'osx_arm64'
+        run: |
+            # Determine the correct Homebrew path
+            if [ -d "/opt/homebrew/etc" ]; then
+              # For Apple Silicon Macs
+              HOMEBREW_ETC="/opt/homebrew/etc"
+            else
+              # For Intel Macs
+              HOMEBREW_ETC="/usr/local/etc"
+            fi
+            
+            echo "Using Homebrew config directory: $HOMEBREW_ETC"
+            echo "===== ODBC Drivers After Installation ====="
+            cat $HOMEBREW_ETC/odbcinst.ini || echo "No odbcinst.ini file found"
+            odbcinst -q -d || echo "odbcinst command not available or no drivers found"
+            
+            echo "===== Testing DuckDB ODBC Driver ====="
+            export ODBCSYSINI=$HOMEBREW_ETC
+            export ODBCINI=$HOMEBREW_ETC/odbc.ini
+            isql -v DuckDB || echo "Could not connect to DuckDB DSN"
       - name: Setup Ccache
         uses: hendrikmuhs/ccache-action@main
         continue-on-error: true
@@ -539,6 +571,11 @@ jobs:
         shell: powershell
         run: |
           ./scripts/install_duckdb_odbc_windows.ps1
+      - name: Verify DuckDB ODBC Driver (Windows)
+        if: matrix.duckdb_arch == 'windows_amd64'
+        shell: powershell
+        run: |
+            Get-OdbcDriver | Format-Table -AutoSize
       - name: Setup Ccache
         uses: hendrikmuhs/ccache-action@main
         continue-on-error: true
