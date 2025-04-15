@@ -25,9 +25,29 @@ RUN mkdir -p /duckdb_odbc && \
     curl -L -o /duckdb_odbc/duckdb_odbc-linux-amd64.zip https://github.com/duckdb/duckdb-odbc/releases/download/v1.2.2/duckdb_odbc-linux-amd64.zip && \
     unzip /duckdb_odbc/duckdb_odbc-linux-amd64.zip -d /duckdb_odbc && \
     cd /duckdb_odbc && \
-    # Instead of running the Python-dependent script, use our bash-only version
-    /duckdb_build_dir/scripts/install_duckdb_odbc_linux.sh -s && \
-    ldconfig
+    # Create a simple script inline that does what we need
+    echo '#!/bin/bash\n\
+    set -e\n\
+    DRIVER_PATH=$(pwd)/libduckdb_odbc.so\n\
+    # Create odbcinst.ini with driver definition\n\
+    echo "[ODBC]" > /etc/odbcinst.ini\n\
+    echo "Trace = yes" >> /etc/odbcinst.ini\n\
+    echo "TraceFile = /tmp/odbctrace" >> /etc/odbcinst.ini\n\
+    echo "" >> /etc/odbcinst.ini\n\
+    echo "[DuckDB Driver]" >> /etc/odbcinst.ini\n\
+    echo "Driver = ${DRIVER_PATH}" >> /etc/odbcinst.ini\n\
+    # Create DSN in odbc.ini\n\
+    echo "[DuckDB]" > /etc/odbc.ini\n\
+    echo "Driver = DuckDB Driver" >> /etc/odbc.ini\n\
+    echo "Database = :memory:" >> /etc/odbc.ini\n\
+    # Copy driver to system directories\n\
+    cp "${DRIVER_PATH}" /usr/lib/\n\
+    if [ -d /usr/lib64 ]; then cp "${DRIVER_PATH}" /usr/lib64/; fi\n\
+    ' > /tmp/install_odbc.sh && \
+    chmod +x /tmp/install_odbc.sh && \
+    /tmp/install_odbc.sh && \
+    ldconfig && \
+    rm -f /tmp/install_odbc.sh duckdb_odbc-linux-amd64.zip
 
 # Setup VCPKG n a mounted volume TODO: figure out how to cache this
 ARG vcpkg_url

@@ -5,6 +5,9 @@
 # Require statement will ensure this test is run with this extension loaded
 require odbc
 
+statement ok
+PRAGMA enable_verification
+
 # Confirm the extension works
 query I
 FROM odbc_query('DuckDB','SELECT 42');
