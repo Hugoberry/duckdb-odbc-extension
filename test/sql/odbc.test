@@ -7,6 +7,6 @@ require odbc
 
 # Confirm the extension works
 query I
-SELECT odbc_query('DuckDB','SELECT 42');
+FROM odbc_query('DuckDB','SELECT 42');
 ----
 42
