@@ -304,10 +304,21 @@ jobs:
       - name: Build extension (inside Docker)
         run: |
           docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir -v `pwd`/ccache_dir:/ccache_dir duckdb/${{ matrix.duckdb_arch }} make release
+      - name: Verify ODBC before testing
+        run: |
+          docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir -v `pwd`/ccache_dir:/ccache_dir duckdb/${{ matrix.duckdb_arch }} bash -c "
+            echo 'Checking ODBC configuration files:'
+            ls -la /etc/odbc*
+            cat /etc/odbcinst.ini
+            cat /etc/odbc.ini
+            
+            echo 'Checking if driver can connect:'
+            ODBCSYSINI=/etc ODBCINI=/etc/odbc.ini isql -v DuckDB
+          "
       - name: Test extension (inside docker)
         if: ${{ matrix.duckdb_arch != 'linux_arm64' && inputs.skip_tests == false }}
         run: |
-          docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir -v `pwd`/ccache_dir:/ccache_dir duckdb/${{ matrix.duckdb_arch }} make test_release
+          docker run --env-file=docker_env.txt -e ODBCSYSINI=/etc -e ODBCINI=/etc/odbc.ini -v `pwd`:/duckdb_build_dir -v `pwd`/ccache_dir:/ccache_dir duckdb/${{ matrix.duckdb_arch }} make test_release
       - name: Test extension (outside docker)
         if: ${{ matrix.duckdb_arch != 'linux_arm64' && inputs.skip_tests == false }}
         env:

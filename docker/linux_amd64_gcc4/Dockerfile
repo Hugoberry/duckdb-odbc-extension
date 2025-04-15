@@ -27,21 +27,27 @@ RUN mkdir -p /duckdb_odbc && \
     cd /duckdb_odbc && \
     DRIVER_PATH=$(pwd)/libduckdb_odbc.so && \
     # Create odbcinst.ini with driver definition 
-    echo "[ODBC]" > /etc/odbcinst.ini && \
-    echo "Trace = yes" >> /etc/odbcinst.ini && \
-    echo "TraceFile = /tmp/odbctrace" >> /etc/odbcinst.ini && \
+    echo "[ODBC Drivers]" > /etc/odbcinst.ini && \
+    echo "DuckDB Driver = Installed" >> /etc/odbcinst.ini && \
     echo "" >> /etc/odbcinst.ini && \
     echo "[DuckDB Driver]" >> /etc/odbcinst.ini && \
+    echo "Description = DuckDB ODBC Driver" >> /etc/odbcinst.ini && \
     echo "Driver = ${DRIVER_PATH}" >> /etc/odbcinst.ini && \
     # Create DSN in odbc.ini 
-    echo "[DuckDB]" > /etc/odbc.ini && \
+    echo "[ODBC Data Sources]" > /etc/odbc.ini && \
+    echo "DuckDB = DuckDB Driver" >> /etc/odbc.ini && \
+    echo "" >> /etc/odbc.ini && \
+    echo "[DuckDB]" >> /etc/odbc.ini && \
     echo "Driver = DuckDB Driver" >> /etc/odbc.ini && \
     echo "Database = :memory:" >> /etc/odbc.ini && \
+    # Also copy configuration to user directory for test access
+    mkdir -p ~/.odbc && \
+    cp /etc/odbcinst.ini ~/.odbcinst.ini && \
+    cp /etc/odbc.ini ~/.odbc.ini && \
     # Copy driver to system directories 
     cp "${DRIVER_PATH}" /usr/lib/ && \
     { [ -d /usr/lib64 ] && cp "${DRIVER_PATH}" /usr/lib64/ || true; } && \
-    ldconfig && \
-    rm -f duckdb_odbc-linux-amd64.zip
+    ldconfig
 
 # Setup VCPKG n a mounted volume TODO: figure out how to cache this
 ARG vcpkg_url
