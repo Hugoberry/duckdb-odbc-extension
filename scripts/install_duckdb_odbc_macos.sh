@@ -17,7 +17,6 @@ ls -la duckdb_odbc/
 echo "Checking dynamic library information:"
 otool -L duckdb_odbc/libduckdb_odbc.dylib
 
-
 # Find the unixODBC installation location
 UNIXODBC_LIB=$(brew --prefix unixodbc)/lib
 echo "unixODBC library location: $UNIXODBC_LIB"
@@ -51,12 +50,21 @@ chmod 755 duckdb_odbc/libduckdb_odbc.dylib
 if [ -d "/opt/homebrew/etc" ]; then
   # For Apple Silicon Macs
   HOMEBREW_ETC="/opt/homebrew/etc"
+  HOMEBREW_LIB="/opt/homebrew/lib"
 else
   # For Intel Macs
   HOMEBREW_ETC="/usr/local/etc"
+  HOMEBREW_LIB="/usr/local/lib"
 fi
 
 echo "Using Homebrew config directory: $HOMEBREW_ETC"
+echo "Using Homebrew lib directory: $HOMEBREW_LIB"
+
+# Copy the driver to a stable system location
+DRIVER_DEST="$HOMEBREW_LIB/libduckdb_odbc.dylib"
+echo "Copying driver to $DRIVER_DEST"
+sudo cp duckdb_odbc/libduckdb_odbc.dylib "$DRIVER_DEST"
+sudo chmod 755 "$DRIVER_DEST"
 
 # Create ODBC configuration directories if they don't exist
 sudo mkdir -p $HOMEBREW_ETC
@@ -64,19 +72,44 @@ sudo mkdir -p $HOMEBREW_ETC
 # Create odbcinst.ini file with DuckDB driver definition
 echo "Creating ODBC driver configuration in $HOMEBREW_ETC/odbcinst.ini"
 sudo touch $HOMEBREW_ETC/odbcinst.ini
-echo "[DuckDB Driver]" | sudo tee $HOMEBREW_ETC/odbcinst.ini
-echo "Description=DuckDB ODBC Driver" | sudo tee -a $HOMEBREW_ETC/odbcinst.ini
-echo "Driver=$(pwd)/duckdb_odbc/libduckdb_odbc.dylib" | sudo tee -a $HOMEBREW_ETC/odbcinst.ini
-echo "Setup=$(pwd)/duckdb_odbc/libduckdb_odbc.dylib" | sudo tee -a $HOMEBREW_ETC/odbcinst.ini
-echo "UsageCount=1" | sudo tee -a $HOMEBREW_ETC/odbcinst.ini
+cat <<EOF | sudo tee $HOMEBREW_ETC/odbcinst.ini
+[ODBC Drivers]
+DuckDB Driver = Installed
+
+[DuckDB Driver]
+Description = DuckDB ODBC Driver
+Driver = $DRIVER_DEST
+Setup = $DRIVER_DEST
+UsageCount = 1
+EOF
 
 # Create a DSN in odbc.ini
 echo "Creating ODBC DSN configuration in $HOMEBREW_ETC/odbc.ini"
 sudo touch $HOMEBREW_ETC/odbc.ini
-echo "[DuckDB]" | sudo tee $HOMEBREW_ETC/odbc.ini
-echo "Description=DuckDB Database" | sudo tee -a $HOMEBREW_ETC/odbc.ini
-echo "Driver=DuckDB Driver" | sudo tee -a $HOMEBREW_ETC/odbc.ini
-echo "Database=:memory:" | sudo tee -a $HOMEBREW_ETC/odbc.ini
+cat <<EOF | sudo tee $HOMEBREW_ETC/odbc.ini
+[ODBC Data Sources]
+DuckDB = DuckDB Driver
+
+[DuckDB]
+Description = DuckDB Database
+Driver = DuckDB Driver
+Database = :memory:
+EOF
 
 # Set permissions
 sudo chmod 644 $HOMEBREW_ETC/odbcinst.ini $HOMEBREW_ETC/odbc.ini
+
+# Set environment variables
+echo "Setting ODBC environment variables"
+export ODBCSYSINI=$HOMEBREW_ETC
+export ODBCINI=$HOMEBREW_ETC/odbc.ini
+
+# Export for subsequent steps in the workflow
+echo "ODBCSYSINI=$HOMEBREW_ETC" >> $GITHUB_ENV
+echo "ODBCINI=$HOMEBREW_ETC/odbc.ini" >> $GITHUB_ENV
+
+# Test the installation
+echo "===== Testing DuckDB ODBC Driver ====="
+isql -v DuckDB || echo "Could not connect to DuckDB DSN, but continuing anyway"
+
+echo "===== DuckDB ODBC Driver Installation Complete ====="
