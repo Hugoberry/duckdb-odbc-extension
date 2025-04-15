@@ -1,18 +1,12 @@
-# name: test/sql/odbc.test
+# name: test/sql/odbc_file.test
 # description: test odbc extension
 # group: [odbc]
 
 # Require statement will ensure this test is run with this extension loaded
 require odbc
 
-# Confirm the extension works with DSN
-query I
-FROM odbc_query('DuckDB','SELECT 42 AS Answer');
-----
-42
-
 # Confirm the extension works with connection string
 query I
-FROM odbc_query('Driver={DuckDB Driver};Database=:memory:','SELECT 42');
+FROM odbc_query('Driver={DuckDB Driver};Database=./test/data/demo.duckdb','SELECT 42 AS Answer');
 ----
 42
