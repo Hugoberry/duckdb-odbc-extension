@@ -385,8 +385,8 @@ jobs:
       - name: Install ODBC Driver Manager and DuckDB ODBC Driver (macOS)
         if: matrix.duckdb_arch == 'osx_arm64'
         run: |
-          chmod +x ./scripts/install_duckdb_odbc_macos.sh
-          ./scripts/install_duckdb_odbc_macos.sh
+          chmod +x ./scripts/install_sqlite_odbc_macos.sh
+          ./scripts/install_sqlite_odbc_macos.sh
       - name: Setup Ccache
         uses: hendrikmuhs/ccache-action@main
         continue-on-error: true
