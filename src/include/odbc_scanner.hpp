@@ -21,14 +21,14 @@ struct ODBCBindData : public TableFunctionData {
     std::vector<std::string> names;
     std::vector<LogicalType> types;
     bool all_varchar = false;
-    ODBCDB *global_db = nullptr;
+    OdbcDB *global_db = nullptr;
     TableCatalogEntry *table = nullptr;
 };
 
 struct ODBCLocalState : public LocalTableFunctionState {
-    ODBCDB *db;
-    ODBCDB owned_db;
-    ODBCStatement stmt;
+    OdbcDB *db;
+    OdbcDB owned_db;
+    OdbcStatement stmt;
     bool done = false;
     std::vector<column_t> column_ids;
     idx_t scan_count = 0;

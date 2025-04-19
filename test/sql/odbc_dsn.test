@@ -1,4 +1,4 @@
-# name: test/sql/odbc.test
+# name: test/sql/odbc_dsn.test
 # description: test odbc extension
 # group: [odbc]
 
@@ -6,9 +6,10 @@
 require odbc
 
 statement ok
-set variable odbc_connection = (select case platform when 'osx_arm64' then 'Driver={SQLite Driver};Database=:memory:' else 'Driver={DuckDB Driver};Database=:memory:;' end con from pragma_platform())
+set variable odbc_connection = (select case platform when 'osx_arm64' then 'SQLite' else 'DuckDB' end con from pragma_platform())
 
-# Confirm the extension works with connection string
+
+# Confirm the extension works with DSN
 query I
 FROM odbc_query(getvariable('odbc_connection'),'SELECT 42 AS Answer');
 ----

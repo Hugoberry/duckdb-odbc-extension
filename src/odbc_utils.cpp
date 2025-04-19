@@ -2,53 +2,17 @@
 
 namespace duckdb {
 
-void ODBCUtils::Check(SQLRETURN rc, SQLSMALLINT handle_type, SQLHANDLE handle, const std::string &operation) {
-    if (rc != SQL_SUCCESS && rc != SQL_SUCCESS_WITH_INFO) {
-        std::string error_message = GetErrorMessage(handle_type, handle);
-        throw std::runtime_error("ODBC Error in " + operation + ": " + error_message);
-    }
+std::string OdbcUtils::HandleException(const nanodbc::database_error& e) {
+    // Format and return the error message
+    std::string message = e.what();
+    
+    // nanodbc::database_error doesn't publicly expose native_error or state
+    // We can only access what's in the public interface, which is the message from what()
+    
+    return message;
 }
 
-std::string ODBCUtils::GetErrorMessage(SQLSMALLINT handle_type, SQLHANDLE handle) {
-    SQLCHAR sql_state[6] = {0};
-    SQLINTEGER native_error;
-    SQLCHAR message_text[SQL_MAX_MESSAGE_LENGTH] = {0};
-    SQLSMALLINT text_length = 0;
-    duckdb::vector<std::string> error_parts;
-    
-    SQLSMALLINT i = 1;
-    while (SQLGetDiagRec(handle_type, handle, i, sql_state, &native_error,
-                        message_text, SQL_MAX_MESSAGE_LENGTH, &text_length) == SQL_SUCCESS) {
-        // Convert ODBC fields to strings
-        std::string state_str(reinterpret_cast<char*>(sql_state), 5);
-        std::string message(reinterpret_cast<char*>(message_text), text_length);
-
-        // Add context-sensitive description
-        std::string description;
-        if (state_str == "HY000") {
-            description = " (General Error)";
-        } else if (state_str == "HYT00") {
-            description = " (Timeout Expired)";
-        } else if (state_str == "08S01") {
-            description = " (Communication Link Failure)";
-        }
-
-        // Format using DuckDB's string utilities
-        auto formatted_part = StringUtil::Format("[%s] %s%s",
-            state_str.c_str(),
-            message.c_str(),
-            description.c_str()
-        );
-        
-        error_parts.push_back(formatted_part);
-        i++;
-    }
-    
-    return error_parts.empty() ? "No ODBC error information available" 
-                              : StringUtil::Join(error_parts, string(" | "));
-}
-
-std::string ODBCUtils::TypeToString(SQLSMALLINT odbc_type) {
+std::string OdbcUtils::TypeToString(SQLSMALLINT odbc_type) {
     switch (odbc_type) {
         case SQL_CHAR:         return "CHAR";
         case SQL_VARCHAR:      return "VARCHAR";
@@ -77,11 +41,11 @@ std::string ODBCUtils::TypeToString(SQLSMALLINT odbc_type) {
     }
 }
 
-std::string ODBCUtils::SanitizeString(const std::string &input) {
+std::string OdbcUtils::SanitizeString(const std::string &input) {
     return StringUtil::Replace(input, "\"", "\"\"");
 }
 
-SQLSMALLINT ODBCUtils::ToODBCType(const LogicalType &input) {
+SQLSMALLINT OdbcUtils::ToODBCType(const LogicalType &input) {
     switch (input.id()) {
         case LogicalTypeId::BOOLEAN:     return SQL_BIT;
         case LogicalTypeId::TINYINT:     return SQL_TINYINT;
@@ -108,13 +72,33 @@ SQLSMALLINT ODBCUtils::ToODBCType(const LogicalType &input) {
     }
 }
 
-LogicalType ODBCUtils::TypeToLogicalType(SQLSMALLINT odbc_type, SQLULEN column_size, SQLSMALLINT decimal_digits) {
+int OdbcUtils::GetOdbcType(const LogicalType& type) {
+    // Map DuckDB types to nanodbc-compatible C types
+    switch (type.id()) {
+        case LogicalTypeId::BOOLEAN:     return SQL_C_BIT;
+        case LogicalTypeId::TINYINT:     return SQL_C_STINYINT;
+        case LogicalTypeId::SMALLINT:    return SQL_C_SSHORT;
+        case LogicalTypeId::INTEGER:     return SQL_C_SLONG;
+        case LogicalTypeId::BIGINT:      return SQL_C_SBIGINT;
+        case LogicalTypeId::FLOAT:       return SQL_C_FLOAT;
+        case LogicalTypeId::DOUBLE:      return SQL_C_DOUBLE;
+        case LogicalTypeId::VARCHAR:     return SQL_C_CHAR;
+        case LogicalTypeId::BLOB:        return SQL_C_BINARY;
+        case LogicalTypeId::TIMESTAMP:   return SQL_C_TYPE_TIMESTAMP;
+        case LogicalTypeId::DATE:        return SQL_C_TYPE_DATE;
+        case LogicalTypeId::TIME:        return SQL_C_TYPE_TIME;
+        case LogicalTypeId::DECIMAL:     return SQL_C_CHAR; // DECIMAL through strings
+        default:                         return SQL_C_CHAR; // Default to string for other types
+    }
+}
+
+LogicalType OdbcUtils::TypeToLogicalType(SQLSMALLINT odbc_type, SQLULEN column_size, SQLSMALLINT decimal_digits) {
     switch (odbc_type) {
         case SQL_BIT:
 #ifdef SQL_BOOLEAN
         case SQL_BOOLEAN:
 #endif
-            return LogicalType::BOOLEAN;
+            return LogicalType(LogicalTypeId::BOOLEAN);
             
         case SQL_TINYINT:
             return LogicalType::TINYINT;
@@ -169,7 +153,7 @@ LogicalType ODBCUtils::TypeToLogicalType(SQLSMALLINT odbc_type, SQLULEN column_s
     }
 }
 
-bool ODBCUtils::IsBinaryType(SQLSMALLINT sqltype) {
+bool OdbcUtils::IsBinaryType(SQLSMALLINT sqltype) {
     switch (sqltype) {
     case SQL_BINARY:
     case SQL_VARBINARY:
@@ -179,79 +163,60 @@ bool ODBCUtils::IsBinaryType(SQLSMALLINT sqltype) {
     return false;
 }
 
-bool ODBCUtils::IsWideType(SQLSMALLINT sqltype) {
+bool OdbcUtils::IsWideType(SQLSMALLINT sqltype) {
     switch (sqltype) {
     case SQL_WCHAR:
     case SQL_WVARCHAR:
     case SQL_WLONGVARCHAR:
-    // case SQL_SS_XML:
-    // case SQL_DB2_XML:
         return true;
     }
     return false;
 }
 
-bool ODBCUtils::ReadVarColumn(SQLHSTMT hstmt, SQLUSMALLINT col_idx, SQLSMALLINT ctype, 
-                             bool& isNull, std::vector<char>& result) {
+bool OdbcUtils::ReadVarColumn(nanodbc::result& result, idx_t col_idx, bool& isNull, std::vector<char>& output) {
     isNull = false;
-    result.clear();
+    output.clear();
     
-    // Determine if null terminator is needed (text vs binary)
-    const bool needsNullTerm = !IsBinaryType(ctype);
-    const size_t nullTermSize = needsNullTerm ? (IsWideType(ctype) ? sizeof(SQLWCHAR) : sizeof(SQLCHAR)) : 0;
-    
-    // Start with a reasonable buffer size
-    size_t bufferSize = 4096;
-    result.resize(bufferSize);
-    size_t totalRead = 0;
-    
-    SQLRETURN ret = SQL_SUCCESS_WITH_INFO;
-    
-    do {
-        SQLLEN cbData = 0;
-        size_t availableSpace = bufferSize - totalRead;
-        
-        ret = SQLGetData(hstmt, col_idx, ctype, 
-                        result.data() + totalRead, 
-                        (SQLLEN)availableSpace, &cbData);
-        
-        if (!SQL_SUCCEEDED(ret) && ret != SQL_NO_DATA) {
-            std::string error = GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-            throw std::runtime_error("Failed to read variable data: " + error);
-        }
-        
-        if (cbData == SQL_NULL_DATA) {
+    try {
+        if (result.is_null(col_idx)) {
             isNull = true;
             return true;
         }
         
-        if (ret == SQL_SUCCESS) {
-            // We got all the data
-            totalRead += (size_t)cbData;
-            result.resize(totalRead);
-            break;
-        } else if (ret == SQL_SUCCESS_WITH_INFO) {
-            // We need more space
-            if (cbData == SQL_NO_TOTAL) {
-                // Driver can't tell us how much data remains
-                totalRead += (availableSpace - nullTermSize);
-                bufferSize *= 2; // Double the buffer size
-            } else if ((size_t)cbData >= availableSpace) {
-                // We read what we could fit but there's more
-                totalRead += (availableSpace - nullTermSize);
-                size_t remaining = (size_t)cbData - (availableSpace - nullTermSize);
-                bufferSize = totalRead + remaining + nullTermSize;
-            } else {
-                // Unexpected case - success with info but buffer not full?
-                totalRead += (size_t)cbData;
-                break;
-            }
-            
-            result.resize(bufferSize);
+        // Get the data using nanodbc
+        std::string value = result.get<std::string>(col_idx);
+        
+        // Copy to output vector
+        output.assign(value.begin(), value.end());
+        return true;
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to read variable column: " + HandleException(e));
+    }
+}
+
+void OdbcUtils::GetColumnMetadata(nanodbc::result& result, idx_t col_idx, 
+                                   SQLSMALLINT& type, SQLULEN& column_size, SQLSMALLINT& decimal_digits) {
+    // Use nanodbc's metadata functions
+    try {
+        // Get the column data type
+        type = result.column_datatype(col_idx);
+        
+        // Get the column size and decimal digits
+        column_size = 0;
+        decimal_digits = 0;
+        
+        // For some data types, we need additional metadata
+        if (type == SQL_NUMERIC || type == SQL_DECIMAL) {
+            column_size = result.column_size(col_idx);
+            decimal_digits = result.column_decimal_digits(col_idx);
+        } else if (type == SQL_CHAR || type == SQL_VARCHAR || type == SQL_WCHAR || type == SQL_WVARCHAR) {
+            column_size = result.column_size(col_idx);
+        } else if (type == SQL_BINARY || type == SQL_VARBINARY) {
+            column_size = result.column_size(col_idx);
         }
-    } while (ret == SQL_SUCCESS_WITH_INFO);
-    
-    return true;
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to get column metadata: " + HandleException(e));
+    }
 }
 
 } // namespace duckdb

@@ -5,37 +5,38 @@
 
 namespace duckdb {
 
+// Keep the same options structure for compatibility
 struct ODBCOpenOptions {
     bool read_only = true; // We'll enforce read-only mode
     std::string connection_timeout = "60"; // Default 60s timeout
 };
 
-class ODBCStatement;
+// Forward declaration
+class OdbcStatement;
 
-class ODBCDB {
+class OdbcDB {
 public:
-    ODBCDB();
-    ODBCDB(SQLHENV henv, SQLHDBC hdbc);
-    ~ODBCDB();
+    OdbcDB();
+    ~OdbcDB();
 
-    ODBCDB(ODBCDB &&other) noexcept;
-    ODBCDB &operator=(ODBCDB &&other) noexcept;
+    OdbcDB(OdbcDB &&other) noexcept;
+    OdbcDB &operator=(OdbcDB &&other) noexcept;
 
     // Forbid copying
-    ODBCDB(const ODBCDB &) = delete;
-    ODBCDB &operator=(const ODBCDB &) = delete;
+    OdbcDB(const OdbcDB &) = delete;
+    OdbcDB &operator=(const OdbcDB &) = delete;
 
     // Open connection using DSN
-    static ODBCDB OpenWithDSN(const std::string &dsn, const std::string &username = "",
+    static OdbcDB OpenWithDSN(const std::string &dsn, const std::string &username = "",
                               const std::string &password = "", const ODBCOpenOptions &options = ODBCOpenOptions());
 
     // Open connection using connection string
-    static ODBCDB OpenWithConnectionString(const std::string &connection_string,
+    static OdbcDB OpenWithConnectionString(const std::string &connection_string,
                                            const ODBCOpenOptions &options = ODBCOpenOptions());
 
     // Prepare a statement
-    ODBCStatement Prepare(const std::string &query);
-    bool TryPrepare(const std::string &query, ODBCStatement &stmt);
+    OdbcStatement Prepare(const std::string &query);
+    bool TryPrepare(const std::string &query, OdbcStatement &stmt);
 
     // Execute a simple statement (no results)
     void Execute(const std::string &query);
@@ -62,13 +63,17 @@ public:
     // Debug helper
     static void DebugSetPrintQueries(bool print);
 
+    // Get raw nanodbc connection (for advanced usage)
+    nanodbc::connection& GetConnection() { return conn; }
+    const nanodbc::connection& GetConnection() const { return conn; }
+
 private:
-    SQLHENV henv;
-    SQLHDBC hdbc;
+    nanodbc::connection conn;
     bool owner;
-
-    void CheckError(SQLRETURN ret, SQLSMALLINT handle_type, SQLHANDLE handle, const std::string &operation);
-
+    static bool debug_print_queries;
 };
+
+// Define an alias for backward compatibility
+using ODBCDB = OdbcDB;
 
 } // namespace duckdb

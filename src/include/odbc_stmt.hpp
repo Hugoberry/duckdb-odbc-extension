@@ -8,18 +8,18 @@ namespace duckdb {
 
 struct ODBCBindData;
 
-class ODBCStatement {
+class OdbcStatement {
 public:
-    ODBCStatement();
-    ODBCStatement(SQLHDBC hdbc, SQLHSTMT hstmt);
-    ~ODBCStatement();
+    OdbcStatement();
+    OdbcStatement(nanodbc::connection& conn, const std::string& query);
+    ~OdbcStatement();
 
-    ODBCStatement(ODBCStatement &&other) noexcept;
-    ODBCStatement &operator=(ODBCStatement &&other) noexcept;
+    OdbcStatement(OdbcStatement &&other) noexcept;
+    OdbcStatement &operator=(OdbcStatement &&other) noexcept;
 
     // Forbid copying
-    ODBCStatement(const ODBCStatement &) = delete;
-    ODBCStatement &operator=(const ODBCStatement &) = delete;
+    OdbcStatement(const OdbcStatement &) = delete;
+    OdbcStatement &operator=(const OdbcStatement &) = delete;
 
     // Execute and fetch next row
     bool Step();
@@ -34,7 +34,7 @@ public:
     bool IsOpen();
     
     // Get the ODBC type of a column
-    SQLSMALLINT GetODBCType(idx_t col, SQLULEN* column_size = nullptr, SQLSMALLINT* decimal_digits = nullptr);;
+    SQLSMALLINT GetODBCType(idx_t col, SQLULEN* column_size = nullptr, SQLSMALLINT* decimal_digits = nullptr);
     
     // Get the DuckDB type of a column
     int GetType(idx_t col);
@@ -67,16 +67,20 @@ public:
     
     // Type checking functions
     void CheckTypeMatches(const ODBCBindData &bind_data, SQLLEN indicator, SQLSMALLINT odbc_type, 
-                          SQLSMALLINT expected_type, idx_t col_idx);
+                         SQLSMALLINT expected_type, idx_t col_idx);
     
     void CheckTypeIsFloatOrInteger(SQLSMALLINT odbc_type, idx_t col_idx);
 
-    // Internal ODBC statement handle
-    SQLHDBC hdbc;
-    SQLHSTMT hstmt;
+    // Internal statement and result handles
+    nanodbc::statement stmt;
+    nanodbc::result result;
     
 private:
-    void CheckError(SQLRETURN ret, const std::string &operation);
+    bool has_result = false;
+    bool executed = false;
 };
+
+// Define an alias for backward compatibility
+using ODBCStatement = OdbcStatement;
 
 } // namespace duckdb

@@ -12,7 +12,7 @@
 namespace duckdb {
 
 static void SetODBCDebugQueryPrint(ClientContext &context, SetScope scope, Value &parameter) {
-    ODBCDB::DebugSetPrintQueries(BooleanValue::Get(parameter));
+    OdbcDB::DebugSetPrintQueries(BooleanValue::Get(parameter));
 }
 
 static void LoadInternal(DatabaseInstance &instance) {
@@ -30,19 +30,15 @@ static void LoadInternal(DatabaseInstance &instance) {
 
     // Add extension options
     auto &config = DBConfig::GetConfig(instance);
-    config.AddExtensionOption("odbc_all_varchar", "Load all ODBC columns as VARCHAR columns", LogicalType::BOOLEAN);
+    config.AddExtensionOption("odbc_all_varchar", "Load all ODBC columns as VARCHAR columns", LogicalType(LogicalTypeId::BOOLEAN));
     
     config.AddExtensionOption("odbc_debug_show_queries", "DEBUG SETTING: print all queries sent to ODBC to stdout",
-                              LogicalType::BOOLEAN, Value::BOOLEAN(false), SetODBCDebugQueryPrint);
+                            LogicalType(LogicalTypeId::BOOLEAN), false, SetODBCDebugQueryPrint);
 }
 
 void OdbcExtension::Load(DuckDB &db) {
     LoadInternal(*db.instance);
 }
-
-// Remove these methods since they're already defined in the header
-// std::string OdbcExtension::Name() { ... }
-// std::string OdbcExtension::Version() const { ... }
 
 } // namespace duckdb
 
@@ -58,7 +54,3 @@ DUCKDB_EXTENSION_API const char *odbc_extension_version() {
 }
 
 }
-
-#ifndef DUCKDB_EXTENSION_MAIN
-#error DUCKDB_EXTENSION_MAIN not defined
-#endif

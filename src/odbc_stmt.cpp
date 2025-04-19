@@ -8,109 +8,136 @@
 
 namespace duckdb {
 
-ODBCStatement::ODBCStatement() : hdbc(nullptr), hstmt(nullptr) {
+OdbcStatement::OdbcStatement() : has_result(false), executed(false) {
 }
 
-ODBCStatement::ODBCStatement(SQLHDBC hdbc, SQLHSTMT hstmt) : hdbc(hdbc), hstmt(hstmt) {
+OdbcStatement::OdbcStatement(nanodbc::connection &conn, const std::string &query)
+    : has_result(false), executed(false) {
+    try {
+        // Prepare the statement
+        stmt = nanodbc::statement(conn, query);
+    } catch (const nanodbc::database_error &e) {
+        // Wrap and rethrow with a descriptive message
+        throw std::runtime_error("Failed to prepare statement: " +
+                                 OdbcUtils::HandleException(e));
+    }
 }
 
-ODBCStatement::~ODBCStatement() {
+
+OdbcStatement::~OdbcStatement() {
     Close();
 }
 
-ODBCStatement::ODBCStatement(ODBCStatement &&other) noexcept {
-    hdbc = other.hdbc;
-    hstmt = other.hstmt;
-    other.hdbc = nullptr;
-    other.hstmt = nullptr;
+OdbcStatement::OdbcStatement(OdbcStatement &&other) noexcept
+    : stmt(std::move(other.stmt)),
+      result(std::move(other.result)),
+      has_result(other.has_result),
+      executed(other.executed) {
+    // Reset the moved‐from instance so its destructor is a no‐op
+    other.stmt = nanodbc::statement();
+    other.result = nanodbc::result();
+    other.has_result = false;
+    other.executed = false;
 }
 
-ODBCStatement &ODBCStatement::operator=(ODBCStatement &&other) noexcept {
+OdbcStatement &OdbcStatement::operator=(OdbcStatement &&other) noexcept {
     if (this != &other) {
+        // Clean up this’s current handles
         Close();
-        hdbc = other.hdbc;
-        hstmt = other.hstmt;
-        other.hdbc = nullptr;
-        other.hstmt = nullptr;
+        // Move in the new handles
+        stmt = std::move(other.stmt);
+        result = std::move(other.result);
+        has_result = other.has_result;
+        executed = other.executed;
+        // Reset the moved‐from so its destructor won’t double‐free
+        other.stmt = nanodbc::statement();
+        other.result = nanodbc::result();
+        other.has_result = false;
+        other.executed = false;
     }
     return *this;
 }
 
-bool ODBCStatement::Step() {
-    if (!hdbc || !hstmt) {
+bool OdbcStatement::Step() {
+    if (!IsOpen()) {
         return false;
     }
-    
-    SQLRETURN ret = SQLExecute(hstmt);
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        if (ret == SQL_NO_DATA) {
-            return false;
+    try {
+        // On the very first call, execute the statement; on every call, advance the cursor.
+        if (!executed) {
+            result = stmt.execute();
+            executed = true;
         }
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to execute statement: " + error);
-    }
-    
-    ret = SQLFetch(hstmt);
-    if (ret == SQL_NO_DATA) {
-        return false;
-    }
-    
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to fetch row: " + error);
-    }
-    
-    return true;
-}
-
-void ODBCStatement::Reset() {
-    if (hstmt) {
-        SQLFreeStmt(hstmt, SQL_CLOSE);
+        // result.next() moves to the *first* row on the first invocation,
+        // and to subsequent rows thereafter.
+        return result.next();
+    } catch (const nanodbc::database_error &e) {
+        throw std::runtime_error("Failed to execute statement: " + OdbcUtils::HandleException(e));
     }
 }
 
-void ODBCStatement::Close() {
-    if (hstmt) {
-        SQLFreeHandle(SQL_HANDLE_STMT, hstmt);
-        hstmt = nullptr;
+void OdbcStatement::Reset() {
+    if (IsOpen()) {
+        try {
+            stmt.close();
+            has_result = false;
+            executed = false;
+        } catch (const nanodbc::database_error& e) {
+            throw std::runtime_error("Failed to reset statement: " + OdbcUtils::HandleException(e));
+        }
     }
-    hdbc = nullptr;
 }
 
-bool ODBCStatement::IsOpen() {
-    return hstmt != nullptr;
+void OdbcStatement::Close() {
+    if (IsOpen()) {
+        try {
+            stmt.close();
+            has_result = false;
+            executed = false;
+        } catch (...) {
+            // Ignore exceptions during close
+        }
+    }
 }
 
-SQLSMALLINT ODBCStatement::GetODBCType(idx_t col, SQLULEN* column_size, SQLSMALLINT* decimal_digits) {
-    if (!hstmt) {
+bool OdbcStatement::IsOpen() {
+    return stmt.connected();
+}
+
+SQLSMALLINT OdbcStatement::GetODBCType(idx_t col, SQLULEN* column_size, SQLSMALLINT* decimal_digits) {
+    if (!IsOpen()) {
         throw std::runtime_error("Statement is not open");
     }
     
-    SQLSMALLINT data_type;
-    SQLULEN size;
-    SQLSMALLINT digits;
-    SQLSMALLINT nullable;
-    
-    SQLRETURN ret = SQLDescribeCol(hstmt, col + 1, nullptr, 0, nullptr, 
-                                  &data_type, &size, &digits, &nullable);
-    
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to get column type: " + error);
+    try {
+        if (!executed) {
+            // We need to execute the statement to get metadata
+            result = stmt.execute();
+            executed = true;
+            has_result = true;
+        }
+        
+        SQLSMALLINT data_type;
+        SQLULEN size;
+        SQLSMALLINT digits;
+        
+        // Get column metadata from nanodbc
+        OdbcUtils::GetColumnMetadata(result, col, data_type, size, digits);
+        
+        // Pass back column size and decimal digits if requested
+        if (column_size) *column_size = size;
+        if (decimal_digits) *decimal_digits = digits;
+        
+        return data_type;
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to get column type: " + OdbcUtils::HandleException(e));
     }
-    
-    // Pass back column size and decimal digits if requested
-    if (column_size) *column_size = size;
-    if (decimal_digits) *decimal_digits = digits;
-    
-    return data_type;
 }
 
-int ODBCStatement::GetType(idx_t col) {
+int OdbcStatement::GetType(idx_t col) {
     SQLSMALLINT odbc_type = GetODBCType(col);
     
     // Map ODBC types to DuckDB internal type numbers
-    // This is a simplified version - a real implementation would map all ODBC types
     switch (odbc_type) {
         case SQL_CHAR:
         case SQL_VARCHAR:
@@ -153,261 +180,247 @@ int ODBCStatement::GetType(idx_t col) {
     }
 }
 
-std::string ODBCStatement::GetName(idx_t col) {
-    if (!hstmt) {
+std::string OdbcStatement::GetName(idx_t col) {
+    if (!IsOpen()) {
         throw std::runtime_error("Statement is not open");
     }
     
-    SQLCHAR column_name[256];
-    SQLSMALLINT name_length;
-    
-    SQLRETURN ret = SQLColAttribute(hstmt, col + 1, SQL_DESC_NAME, 
-                                   column_name, sizeof(column_name), &name_length, nullptr);
-    
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to get column name: " + error);
+    try {
+        if (!executed) {
+            // We need to execute the statement to get metadata
+            result = stmt.execute();
+            executed = true;
+            has_result = true;
+        }
+        
+        // Get column name from nanodbc
+        return result.column_name(col);
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to get column name: " + OdbcUtils::HandleException(e));
     }
-    
-    return std::string((char*)column_name, name_length);
 }
 
-idx_t ODBCStatement::GetColumnCount() {
-    if (!hstmt) {
+idx_t OdbcStatement::GetColumnCount() {
+    if (!IsOpen()) {
         throw std::runtime_error("Statement is not open");
     }
     
-    SQLSMALLINT column_count;
-    SQLRETURN ret = SQLNumResultCols(hstmt, &column_count);
-    
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to get column count: " + error);
-    }
-    
-    return column_count;
-}
-
-template <>
-std::string ODBCStatement::GetValue(idx_t col) {
-    if (!hstmt) {
-        throw std::runtime_error("Statement is not open");
-    }
-    
-    char buffer[4096];
-    SQLLEN indicator;
-    
-    SQLRETURN ret = SQLGetData(hstmt, col + 1, SQL_C_CHAR, buffer, sizeof(buffer), &indicator);
-    
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to get string value: " + error);
-    }
-    
-    if (indicator == SQL_NULL_DATA) {
-        return std::string();
-    }
-    
-    return std::string(buffer, indicator < sizeof(buffer) ? indicator : sizeof(buffer));
-}
-
-template <>
-int ODBCStatement::GetValue(idx_t col) {
-    if (!hstmt) {
-        throw std::runtime_error("Statement is not open");
-    }
-    
-    int value;
-    SQLLEN indicator;
-    
-    SQLRETURN ret = SQLGetData(hstmt, col + 1, SQL_C_LONG, &value, sizeof(value), &indicator);
-    
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to get int value: " + error);
-    }
-    
-    if (indicator == SQL_NULL_DATA) {
-        return 0;
-    }
-    
-    return value;
-}
-
-template <>
-int64_t ODBCStatement::GetValue(idx_t col) {
-    if (!hstmt) {
-        throw std::runtime_error("Statement is not open");
-    }
-    
-    int64_t value;
-    SQLLEN indicator;
-    
-    SQLRETURN ret = SQLGetData(hstmt, col + 1, SQL_C_SBIGINT, &value, sizeof(value), &indicator);
-    
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to get int64 value: " + error);
-    }
-    
-    if (indicator == SQL_NULL_DATA) {
-        return 0;
-    }
-    
-    return value;
-}
-
-template <>
-double ODBCStatement::GetValue(idx_t col) {
-    if (!hstmt) {
-        throw std::runtime_error("Statement is not open");
-    }
-    
-    double value;
-    SQLLEN indicator;
-    
-    SQLRETURN ret = SQLGetData(hstmt, col + 1, SQL_C_DOUBLE, &value, sizeof(value), &indicator);
-    
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to get double value: " + error);
-    }
-    
-    if (indicator == SQL_NULL_DATA) {
-        return 0.0;
-    }
-    
-    return value;
-}
-
-template <>
-timestamp_t ODBCStatement::GetValue(idx_t col) {
-    if (!hstmt) {
-        throw std::runtime_error("Statement is not open");
-    }
-    
-    SQL_TIMESTAMP_STRUCT ts;
-    SQLLEN indicator;
-    
-    SQLRETURN ret = SQLGetData(hstmt, col + 1, SQL_C_TYPE_TIMESTAMP, &ts, sizeof(ts), &indicator);
-    
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to get timestamp value: " + error);
-    }
-    
-    if (indicator == SQL_NULL_DATA) {
-        // Return epoch for null
-        return Timestamp::FromEpochSeconds(0);
-    }
-    
-    // Convert SQL_TIMESTAMP_STRUCT to duckdb timestamp
-    date_t date = Date::FromDate(ts.year, ts.month, ts.day);
-    dtime_t time = Time::FromTime(ts.hour, ts.minute, ts.second, ts.fraction / 1000000);
-    return Timestamp::FromDatetime(date, time);
-}
-
-SQLLEN ODBCStatement::GetValueLength(idx_t col) {
-    if (!hstmt) {
-        throw std::runtime_error("Statement is not open");
-    }
-    
-    SQLLEN indicator;
-    SQLGetData(hstmt, col + 1, SQL_C_BINARY, NULL, 0, &indicator);
-    return indicator;
-}
-
-template <>
-void ODBCStatement::Bind(idx_t col, int value) {
-    if (!hstmt) {
-        throw std::runtime_error("Statement is not open");
-    }
-    
-    SQLRETURN ret = SQLBindParameter(hstmt, col + 1, SQL_PARAM_INPUT, SQL_C_LONG, SQL_INTEGER, 
-                                   0, 0, (SQLPOINTER)&value, 0, nullptr);
-    
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to bind int parameter: " + error);
+    try {
+        if (!executed) {
+            // We need to execute the statement to get metadata
+            result = stmt.execute();
+            executed = true;
+            has_result = true;
+        }
+        
+        return result.columns();
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to get column count: " + OdbcUtils::HandleException(e));
     }
 }
 
 template <>
-void ODBCStatement::Bind(idx_t col, int64_t value) {
-    if (!hstmt) {
-        throw std::runtime_error("Statement is not open");
+std::string OdbcStatement::GetValue(idx_t col) {
+    if (!IsOpen() || !has_result) {
+        throw std::runtime_error("Statement is not open or no result available");
     }
     
-    SQLRETURN ret = SQLBindParameter(hstmt, col + 1, SQL_PARAM_INPUT, SQL_C_SBIGINT, SQL_BIGINT, 
-                                   0, 0, (SQLPOINTER)&value, 0, nullptr);
-    
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to bind int64 parameter: " + error);
-    }
-}
-
-template <>
-void ODBCStatement::Bind(idx_t col, double value) {
-    if (!hstmt) {
-        throw std::runtime_error("Statement is not open");
-    }
-    
-    SQLRETURN ret = SQLBindParameter(hstmt, col + 1, SQL_PARAM_INPUT, SQL_C_DOUBLE, SQL_DOUBLE, 
-                                   0, 0, (SQLPOINTER)&value, 0, nullptr);
-    
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to bind double parameter: " + error);
+    try {
+        if (result.is_null(col)) {
+            return std::string();
+        }
+        
+        return result.get<std::string>(col);
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to get string value: " + OdbcUtils::HandleException(e));
     }
 }
 
 template <>
-void ODBCStatement::Bind(idx_t col, std::nullptr_t value) {
-    if (!hstmt) {
-        throw std::runtime_error("Statement is not open");
+int OdbcStatement::GetValue(idx_t col) {
+    if (!IsOpen() || !has_result) {
+        throw std::runtime_error("Statement is not open or no result available");
     }
     
-    SQLRETURN ret = SQLBindParameter(hstmt, col + 1, SQL_PARAM_INPUT, SQL_C_DEFAULT, SQL_NULL_DATA, 
-                                   0, 0, nullptr, 0, nullptr);
-    
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to bind null parameter: " + error);
-    }
-}
-
-void ODBCStatement::BindBlob(idx_t col, const string_t &value) {
-    if (!hstmt) {
-        throw std::runtime_error("Statement is not open");
-    }
-    
-    SQLLEN len = value.GetSize();
-    SQLRETURN ret = SQLBindParameter(hstmt, col + 1, SQL_PARAM_INPUT, SQL_C_BINARY, SQL_BINARY, 
-                                   value.GetSize(), 0, (SQLPOINTER)value.GetDataUnsafe(), len, &len);
-    
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to bind blob parameter: " + error);
+    try {
+        if (result.is_null(col)) {
+            return 0;
+        }
+        
+        return result.get<int>(col);
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to get int value: " + OdbcUtils::HandleException(e));
     }
 }
 
-void ODBCStatement::BindText(idx_t col, const string_t &value) {
-    if (!hstmt) {
-        throw std::runtime_error("Statement is not open");
+template <>
+int64_t OdbcStatement::GetValue(idx_t col) {
+    if (!IsOpen() || !has_result) {
+        throw std::runtime_error("Statement is not open or no result available");
     }
     
-    SQLLEN len = SQL_NTS;
-    SQLRETURN ret = SQLBindParameter(hstmt, col + 1, SQL_PARAM_INPUT, SQL_C_CHAR, SQL_VARCHAR, 
-                                   value.GetSize(), 0, (SQLPOINTER)value.GetDataUnsafe(), 0, &len);
-    
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("Failed to bind text parameter: " + error);
+    try {
+        if (result.is_null(col)) {
+            return 0;
+        }
+        
+        return result.get<int64_t>(col);
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to get int64 value: " + OdbcUtils::HandleException(e));
     }
 }
 
-void ODBCStatement::BindValue(Vector &col, idx_t c, idx_t r) {
+template <>
+double OdbcStatement::GetValue(idx_t col) {
+    if (!IsOpen() || !has_result) {
+        throw std::runtime_error("Statement is not open or no result available");
+    }
+    
+    try {
+        if (result.is_null(col)) {
+            return 0.0;
+        }
+        
+        return result.get<double>(col);
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to get double value: " + OdbcUtils::HandleException(e));
+    }
+}
+
+template <>
+timestamp_t OdbcStatement::GetValue(idx_t col) {
+    if (!IsOpen() || !has_result) {
+        throw std::runtime_error("Statement is not open or no result available");
+    }
+    
+    try {
+        if (result.is_null(col)) {
+            // Return epoch for null
+            return Timestamp::FromEpochSeconds(0);
+        }
+        
+        // Get timestamp using nanodbc
+        nanodbc::timestamp ts = result.get<nanodbc::timestamp>(col);
+        
+        // Convert to DuckDB timestamp
+        date_t date = Date::FromDate(ts.year, ts.month, ts.day);
+        dtime_t time = Time::FromTime(ts.hour, ts.min, ts.sec, ts.fract / 1000000);
+        return Timestamp::FromDatetime(date, time);
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to get timestamp value: " + OdbcUtils::HandleException(e));
+    }
+}
+
+SQLLEN OdbcStatement::GetValueLength(idx_t col) {
+    if (!IsOpen() || !has_result) {
+        throw std::runtime_error("Statement is not open or no result available");
+    }
+    
+    try {
+        // With nanodbc, we need to get the actual data to know its length
+        // For variable length data, use a different approach
+        if (result.is_null(col)) {
+            return SQL_NULL_DATA;
+        }
+        
+        SQLSMALLINT type;
+        SQLULEN column_size;
+        SQLSMALLINT decimal_digits;
+        OdbcUtils::GetColumnMetadata(result, col, type, column_size, decimal_digits);
+        
+        // For variable length data like strings and blobs
+        if (OdbcUtils::IsBinaryType(type) || type == SQL_VARCHAR || type == SQL_CHAR || 
+            type == SQL_WVARCHAR || type == SQL_WCHAR) {
+            std::string value = result.get<std::string>(col);
+            return value.length();
+        }
+        
+        // For fixed length data, return the column size
+        return column_size;
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to get value length: " + OdbcUtils::HandleException(e));
+    }
+}
+
+template <>
+void OdbcStatement::Bind(idx_t col, int value) {
+    if (!IsOpen()) {
+        throw std::runtime_error("Statement is not open");
+    }
+    
+    try {
+        stmt.bind(col, &value);
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to bind int parameter: " + OdbcUtils::HandleException(e));
+    }
+}
+
+template <>
+void OdbcStatement::Bind(idx_t col, int64_t value) {
+    if (!IsOpen()) {
+        throw std::runtime_error("Statement is not open");
+    }
+    
+    try {
+        stmt.bind(col, &value);
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to bind int64 parameter: " + OdbcUtils::HandleException(e));
+    }
+}
+
+template <>
+void OdbcStatement::Bind(idx_t col, double value) {
+    if (!IsOpen()) {
+        throw std::runtime_error("Statement is not open");
+    }
+    
+    try {
+        stmt.bind(col, &value);
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to bind double parameter: " + OdbcUtils::HandleException(e));
+    }
+}
+
+template <>
+void OdbcStatement::Bind(idx_t col, std::nullptr_t value) {
+    if (!IsOpen()) {
+        throw std::runtime_error("Statement is not open");
+    }
+    
+    try {
+        stmt.bind_null(col);
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to bind null parameter: " + OdbcUtils::HandleException(e));
+    }
+}
+
+void OdbcStatement::BindBlob(idx_t col, const string_t &value) {
+    if (!IsOpen()) {
+        throw std::runtime_error("Statement is not open");
+    }
+    
+    try {
+        // Bind binary data using nanodbc
+        stmt.bind(col, value.GetDataUnsafe(), value.GetSize());
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to bind blob parameter: " + OdbcUtils::HandleException(e));
+    }
+}
+
+void OdbcStatement::BindText(idx_t col, const string_t &value) {
+    if (!IsOpen()) {
+        throw std::runtime_error("Statement is not open");
+    }
+    
+    try {
+        std::string str(value.GetDataUnsafe(), value.GetSize());
+        stmt.bind(col, str.c_str());
+    } catch (const nanodbc::database_error& e) {
+        throw std::runtime_error("Failed to bind text parameter: " + OdbcUtils::HandleException(e));
+    }
+}
+
+void OdbcStatement::BindValue(Vector &col, idx_t c, idx_t r) {
     auto &mask = FlatVector::Validity(col);
     if (!mask.RowIsValid(r)) {
         Bind<std::nullptr_t>(c, nullptr);
@@ -434,8 +447,8 @@ void ODBCStatement::BindValue(Vector &col, idx_t c, idx_t r) {
     }
 }
 
-void ODBCStatement::CheckTypeMatches(const ODBCBindData &bind_data, SQLLEN indicator, SQLSMALLINT odbc_type, 
-                                    SQLSMALLINT expected_type, idx_t col_idx) {
+void OdbcStatement::CheckTypeMatches(const ODBCBindData &bind_data, SQLLEN indicator, SQLSMALLINT odbc_type, 
+                                      SQLSMALLINT expected_type, idx_t col_idx) {
     if (bind_data.all_varchar) {
         // No type check needed if all columns are treated as varchar
         return;
@@ -449,31 +462,24 @@ void ODBCStatement::CheckTypeMatches(const ODBCBindData &bind_data, SQLLEN indic
     if (odbc_type != expected_type) {
         std::string column_name = GetName(col_idx);
         std::string message = "Invalid type in column \"" + column_name + "\": column was declared as " +
-                              ODBCUtils::TypeToString(expected_type) + ", found " +
-                              ODBCUtils::TypeToString(odbc_type) + " instead.";
+                              OdbcUtils::TypeToString(expected_type) + ", found " +
+                              OdbcUtils::TypeToString(odbc_type) + " instead.";
         message += "\n* SET odbc_all_varchar=true to load all columns as VARCHAR "
                   "and skip type conversions";
         throw std::runtime_error(message);
     }
 }
 
-void ODBCStatement::CheckTypeIsFloatOrInteger(SQLSMALLINT odbc_type, idx_t col_idx) {
+void OdbcStatement::CheckTypeIsFloatOrInteger(SQLSMALLINT odbc_type, idx_t col_idx) {
     if (odbc_type != SQL_FLOAT && odbc_type != SQL_DOUBLE && odbc_type != SQL_REAL &&
         odbc_type != SQL_INTEGER && odbc_type != SQL_SMALLINT && odbc_type != SQL_TINYINT && 
         odbc_type != SQL_BIGINT && odbc_type != SQL_DECIMAL && odbc_type != SQL_NUMERIC) {
         std::string column_name = GetName(col_idx);
         std::string message = "Invalid type in column \"" + column_name + "\": expected float or integer, found " +
-                              ODBCUtils::TypeToString(odbc_type) + " instead.";
+                              OdbcUtils::TypeToString(odbc_type) + " instead.";
         message += "\n* SET odbc_all_varchar=true to load all columns as VARCHAR "
                   "and skip type conversions";
         throw std::runtime_error(message);
-    }
-}
-
-void ODBCStatement::CheckError(SQLRETURN ret, const std::string &operation) {
-    if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
-        std::string error = ODBCUtils::GetErrorMessage(SQL_HANDLE_STMT, hstmt);
-        throw std::runtime_error("ODBC Error in " + operation + ": " + error);
     }
 }
 

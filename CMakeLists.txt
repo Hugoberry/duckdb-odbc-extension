@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.5)
+set(CMAKE_CXX_STANDARD 17)
 
 # Set extension name here
 set(TARGET_NAME odbc)
-
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
 set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
@@ -10,6 +10,7 @@ project(${TARGET_NAME})
 
 # Include directories
 include_directories(src/include)
+include_directories(src)
 
 # Set global visibility settings to ensure symbols are exported correctly
 set(CMAKE_CXX_VISIBILITY_PRESET default)
@@ -56,7 +57,7 @@ else()
     
     message(STATUS "Found ODBC libraries: ${ODBC_LIBRARIES}")
     message(STATUS "Found ODBC includes: ${ODBC_INCLUDE_DIRS}")
-    
+
     # Add iconv to ODBC libraries on macOS
     if(APPLE AND ICONV_LIBRARY)
         list(APPEND ODBC_LIBRARIES ${ICONV_LIBRARY})
@@ -72,27 +73,31 @@ endif()
 # Include ODBC headers
 include_directories(${ODBC_INCLUDE_DIRS})
 
-# Print information about the build environment
-message(STATUS "Building for platform: ${CMAKE_SYSTEM_NAME}")
-message(STATUS "Processor architecture: ${CMAKE_SYSTEM_PROCESSOR}")
-message(STATUS "CMake generator: ${CMAKE_GENERATOR}")
+# Nanodbc library files
+set(NANODBC_SOURCES
+    src/nanodbc/nanodbc.cpp
+)
 
 # Extension sources
 set(EXTENSION_SOURCES 
     src/odbc_db.cpp
     src/odbc_stmt.cpp
-    src/odbc_scanner.cpp
     src/odbc_utils.cpp
+    src/odbc_scanner.cpp
     src/odbc_extension.cpp
     src/odbc_exports.cpp)
 
-# Build the extension
-build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
-build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
+# Combined sources
+set(ALL_SOURCES ${EXTENSION_SOURCES} ${NANODBC_SOURCES})
 
-# Link against ODBC libraries for all targets
-target_link_libraries(${EXTENSION_NAME} ${ODBC_LIBRARIES})
-target_link_libraries(${LOADABLE_EXTENSION_NAME} ${ODBC_LIBRARIES})
+# Create the static extension
+add_library(${EXTENSION_NAME} STATIC ${ALL_SOURCES})
+target_link_libraries(${EXTENSION_NAME} PRIVATE ${ODBC_LIBRARIES})
+
+# Build loadable extension with ODBC parameter
+# Use the actual path to the ODBC library instead of -lodbc
+set(PARAMETERS "-l${ODBC_LIBRARIES}")
+build_loadable_extension(${TARGET_NAME} "${PARAMETERS}" ${ALL_SOURCES})
 
 # Install the extension
 install(
