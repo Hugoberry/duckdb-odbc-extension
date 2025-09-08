@@ -14,6 +14,7 @@ concurrency:
 jobs:
 
   duckdb-stable-build:
+    if: false # disable stable builds for now
     name: Build stable extension binaries
     # uses: ./.github/workflows/_extension_distribution.yml
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.3.2
@@ -27,9 +28,9 @@ jobs:
   duckdb-next-build:
     name: Build main extension binaries
     # uses: ./.github/workflows/_extension_distribution.yml
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.3.2
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
     with:
-      duckdb_version: main
+      duckdb_version: v1.4-andium
       ci_tools_version: main
       extension_name: nanodbc
       exclude_archs: 'linux_amd64_musl;osx_amd64;wasm_mvp;wasm_eh;wasm_threads;'
