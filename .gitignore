@@ -9,3 +9,4 @@ test/python/__pycache__/
 vcpkg/
 vcpkg_installed/
 duckdb_odbc/
+duckdb-sqlite/

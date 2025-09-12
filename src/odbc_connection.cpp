@@ -168,12 +168,12 @@ std::vector<std::string> OdbcConnection::GetTables() {
     return tables;
 }
 
-void OdbcConnection::GetTableInfo(const std::string &tableName, ColumnList &columns, 
+void OdbcConnection::GetTableInfo(const std::string &tableName, const std::string &schemaName, ColumnList &columns, 
                                 std::vector<std::unique_ptr<Constraint>> &constraints, bool allVarchar) {
     try {
         // Get column information using nanodbc catalog
         nanodbc::catalog catalog(connection);
-        auto columnResults = catalog.find_columns(std::string(), tableName, std::string(), std::string());
+        auto columnResults = catalog.find_columns(std::string(), tableName, schemaName, std::string());
 
         idx_t columnIndex = 0;
         

@@ -40,6 +40,7 @@ OdbcScanParameters OdbcParameterParser::ParseScanParameters(const TableFunctionB
     
     params.connection = ParseConnectionParams(input);
     params.table_name = GetRequiredString(input, "table_name");
+    params.schema_name = GetOptionalString(input, "schema_name");
     params.options = ParseCommonOptions(input);
     
     return params;

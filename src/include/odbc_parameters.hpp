@@ -17,6 +17,7 @@ struct OdbcOptions {
 struct OdbcScanParameters {
     ConnectionParams connection;
     std::string table_name;
+    std::string schema_name;
     OdbcOptions options;
 };
 

@@ -85,7 +85,7 @@ public:
     std::vector<std::string> GetViews();
     
     // Get columns for a table
-    void GetTableInfo(const std::string &tableName, ColumnList &columns, 
+    void GetTableInfo(const std::string &tableName, const std::string &schemaName, ColumnList &columns, 
                      std::vector<std::unique_ptr<Constraint>> &constraints, bool allVarchar = false);
     
     // Get raw nanodbc connection (for advanced usage)
