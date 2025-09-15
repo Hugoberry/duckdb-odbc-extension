@@ -1,0 +1,33 @@
+# name: test/sql/odbc_schema.test
+# description: Test ODBC extension's table scanning functionality with schema parameter
+# group: [odbc]
+
+require nanodbc
+
+require-env NANODBC_ENVIRONMENT
+
+# Test information_schema schema availability
+query I
+FROM odbc_query(
+    query="SELECT table_name FROM information_schema.views where table_schema='information_schema' order by 1 limit 3", 
+    connection='RNAcentral'
+);
+----
+administrable_role_authorizations
+applicable_roles
+attributes
+
+# Test schema_name parameter
+query I
+SELECT 
+    table_name
+FROM odbc_scan(
+    table_name='views',
+    schema_name='information_schema', 
+    connection='RNAcentral'
+) ORDER BY 1 DESC LIMIT 3;
+----
+xref_count
+views
+view_table_usage
+

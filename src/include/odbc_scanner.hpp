@@ -27,6 +27,7 @@ struct OdbcScannerState : public TableFunctionData {
     
     // Operation details
     std::string table_name;
+    std::string schema_name;
     std::string sql;
     
     // Schema information

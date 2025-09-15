@@ -34,6 +34,7 @@ TableFunction OdbcTableFunction::CreateScanFunction() {
     // Add named parameters
     result.named_parameters["connection"] = LogicalType(LogicalTypeId::VARCHAR);
     result.named_parameters["table_name"] = LogicalType(LogicalTypeId::VARCHAR);
+    result.named_parameters["schema_name"] = LogicalType(LogicalTypeId::VARCHAR);
     result.named_parameters["username"] = LogicalType(LogicalTypeId::VARCHAR);
     result.named_parameters["password"] = LogicalType(LogicalTypeId::VARCHAR);
     result.named_parameters["all_varchar"] = LogicalType(LogicalTypeId::BOOLEAN);
@@ -128,6 +129,7 @@ unique_ptr<FunctionData> BindOdbcFunction(ClientContext &context, TableFunctionB
             result->connection_params = params.connection;
             result->table_name = params.table_name;
             result->options = params.options;
+            result->schema_name = params.schema_name;
             
             // Connect to data source and get schema
             try {
@@ -136,7 +138,7 @@ unique_ptr<FunctionData> BindOdbcFunction(ClientContext &context, TableFunctionB
                 // Get table information
                 ColumnList columns;
                 std::vector<std::unique_ptr<Constraint>> constraints;
-                db->GetTableInfo(result->table_name, columns, constraints, result->options.all_varchar);
+                db->GetTableInfo(result->table_name, result->schema_name, columns, constraints, result->options.all_varchar);
                 
                 // Map column types and names
                 for (auto &column : columns.Logical()) {
@@ -276,9 +278,18 @@ unique_ptr<LocalTableFunctionState> InitOdbcLocalState(ExecutionContext &context
                     return columnId == (column_t)-1 ? "NULL"
                                                   : '"' + OdbcUtils::SanitizeString(bind_data.column_names[columnId]) + '"';
                 });
-                
-            sql = StringUtil::Format("SELECT %s FROM \"%s\"", colNames, 
-                                   OdbcUtils::SanitizeString(bind_data.table_name));
+
+            // Simple schema check - format with or without schema
+            if (!bind_data.schema_name.empty()) {
+                sql = StringUtil::Format("SELECT %s FROM \"%s\".\"%s\"", 
+                                       colNames,
+                                       OdbcUtils::SanitizeString(bind_data.schema_name),
+                                       OdbcUtils::SanitizeString(bind_data.table_name));
+            } else {
+                sql = StringUtil::Format("SELECT %s FROM \"%s\"", 
+                                       colNames,
+                                       OdbcUtils::SanitizeString(bind_data.table_name));
+            }
         } else {
             sql = bind_data.sql;
         }
