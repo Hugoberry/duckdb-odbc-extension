@@ -279,9 +279,17 @@ unique_ptr<LocalTableFunctionState> InitOdbcLocalState(ExecutionContext &context
                                                   : '"' + OdbcUtils::SanitizeString(bind_data.column_names[columnId]) + '"';
                 });
 
-            sql = StringUtil::Format("SELECT %s FROM \"%s\".\"%s\"", colNames,
-                                   OdbcUtils::SanitizeString(bind_data.schema_name),
-                                   OdbcUtils::SanitizeString(bind_data.table_name));
+            // Simple schema check - format with or without schema
+            if (!bind_data.schema_name.empty()) {
+                sql = StringUtil::Format("SELECT %s FROM \"%s\".\"%s\"", 
+                                       colNames,
+                                       OdbcUtils::SanitizeString(bind_data.schema_name),
+                                       OdbcUtils::SanitizeString(bind_data.table_name));
+            } else {
+                sql = StringUtil::Format("SELECT %s FROM \"%s\"", 
+                                       colNames,
+                                       OdbcUtils::SanitizeString(bind_data.table_name));
+            }
         } else {
             sql = bind_data.sql;
         }
