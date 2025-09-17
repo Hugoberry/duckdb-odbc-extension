@@ -1,9 +1,68 @@
 #include "odbc_parameters.hpp"
+#include "odbc_scanner.hpp"
 #include "duckdb/common/string_util.hpp"
 
 namespace duckdb {
 
-ConnectionParams OdbcParameterParser::ParseConnectionParams(const TableFunctionBindInput& input) {
+std::unique_ptr<OdbcScannerState> OdbcFunctionDataFactory::CreateScannerState(const TableFunctionBindInput& input) {
+    auto result = std::make_unique<OdbcScannerState>();
+    
+    // Parse and set connection parameters
+    result->connection_params = ParseConnectionParams(input);
+    
+    // Parse scan-specific parameters
+    result->table_name = GetRequiredString(input, "table_name");
+    result->schema_name = GetOptionalString(input, "schema_name");
+    
+    // Parse options
+    result->options = ParseOptions(input);
+    
+    return result;
+}
+
+std::unique_ptr<OdbcScannerState> OdbcFunctionDataFactory::CreateQueryState(const TableFunctionBindInput& input) {
+    auto result = std::make_unique<OdbcScannerState>();
+    
+    // Parse and set connection parameters
+    result->connection_params = ParseConnectionParams(input);
+    
+    // Parse query-specific parameters
+    result->sql = GetRequiredString(input, "query");
+    
+    // Parse options
+    result->options = ParseOptions(input);
+    
+    return result;
+}
+
+std::unique_ptr<OdbcExecFunctionData> OdbcFunctionDataFactory::CreateExecData(const TableFunctionBindInput& input) {
+    auto result = std::make_unique<OdbcExecFunctionData>();
+    
+    // Parse and set connection parameters
+    result->connection_params = ParseConnectionParams(input);
+    
+    // Parse exec-specific parameters
+    result->sql = GetRequiredString(input, "sql");
+    
+    // Parse options
+    result->options = ParseOptions(input);
+    
+    return result;
+}
+
+std::unique_ptr<OdbcAttachFunctionData> OdbcFunctionDataFactory::CreateAttachData(const TableFunctionBindInput& input) {
+    auto result = std::make_unique<OdbcAttachFunctionData>();
+    
+    // Parse and set connection parameters
+    result->connection_params = ParseConnectionParams(input);
+    
+    // Parse options
+    result->options = ParseOptions(input);
+    
+    return result;
+}
+
+ConnectionParams OdbcFunctionDataFactory::ParseConnectionParams(const TableFunctionBindInput& input) {
     std::string connection = GetRequiredString(input, "connection");
     std::string username = GetOptionalString(input, "username");
     std::string password = GetOptionalString(input, "password");
@@ -25,7 +84,7 @@ ConnectionParams OdbcParameterParser::ParseConnectionParams(const TableFunctionB
     return ConnectionParams(connection, username, password, timeout, read_only);
 }
 
-OdbcOptions OdbcParameterParser::ParseCommonOptions(const TableFunctionBindInput& input) {
+OdbcOptions OdbcFunctionDataFactory::ParseOptions(const TableFunctionBindInput& input) {
     OdbcOptions options;
     
     options.all_varchar = GetOptionalBoolean(input, "all_varchar", false);
@@ -35,47 +94,7 @@ OdbcOptions OdbcParameterParser::ParseCommonOptions(const TableFunctionBindInput
     return options;
 }
 
-OdbcScanParameters OdbcParameterParser::ParseScanParameters(const TableFunctionBindInput& input) {
-    OdbcScanParameters params;
-    
-    params.connection = ParseConnectionParams(input);
-    params.table_name = GetRequiredString(input, "table_name");
-    params.schema_name = GetOptionalString(input, "schema_name");
-    params.options = ParseCommonOptions(input);
-    
-    return params;
-}
-
-OdbcQueryParameters OdbcParameterParser::ParseQueryParameters(const TableFunctionBindInput& input) {
-    OdbcQueryParameters params;
-    
-    params.connection = ParseConnectionParams(input);
-    params.query = GetRequiredString(input, "query");
-    params.options = ParseCommonOptions(input);
-    
-    return params;
-}
-
-OdbcExecParameters OdbcParameterParser::ParseExecParameters(const TableFunctionBindInput& input) {
-    OdbcExecParameters params;
-    
-    params.connection = ParseConnectionParams(input);
-    params.sql = GetRequiredString(input, "sql");
-    params.options = ParseCommonOptions(input);
-    
-    return params;
-}
-
-OdbcAttachParameters OdbcParameterParser::ParseAttachParameters(const TableFunctionBindInput& input) {
-    OdbcAttachParameters params;
-    
-    params.connection = ParseConnectionParams(input);
-    params.options = ParseCommonOptions(input);
-    
-    return params;
-}
-
-std::string OdbcParameterParser::GetRequiredString(const TableFunctionBindInput& input, 
+std::string OdbcFunctionDataFactory::GetRequiredString(const TableFunctionBindInput& input, 
                                                  const std::string& param_name) {
     auto it = input.named_parameters.find(param_name);
     if (it == input.named_parameters.end()) {
@@ -89,7 +108,7 @@ std::string OdbcParameterParser::GetRequiredString(const TableFunctionBindInput&
     return it->second.GetValue<string>();
 }
 
-std::string OdbcParameterParser::GetOptionalString(const TableFunctionBindInput& input, 
+std::string OdbcFunctionDataFactory::GetOptionalString(const TableFunctionBindInput& input, 
                                                   const std::string& param_name, 
                                                   const std::string& default_value) {
     auto it = input.named_parameters.find(param_name);
@@ -104,7 +123,7 @@ std::string OdbcParameterParser::GetOptionalString(const TableFunctionBindInput&
     return it->second.GetValue<string>();
 }
 
-bool OdbcParameterParser::GetOptionalBoolean(const TableFunctionBindInput& input, 
+bool OdbcFunctionDataFactory::GetOptionalBoolean(const TableFunctionBindInput& input, 
                                             const std::string& param_name, 
                                             bool default_value) {
     auto it = input.named_parameters.find(param_name);

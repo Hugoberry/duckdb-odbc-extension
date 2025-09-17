@@ -1,4 +1,5 @@
 #include "odbc_scanner.hpp"
+#include "odbc_parameters.hpp"
 #include "odbc_utils.hpp"
 #include "odbc_encoding.hpp"
 #include "duckdb/main/client_context.hpp"
@@ -124,12 +125,7 @@ unique_ptr<FunctionData> BindOdbcFunction(ClientContext &context, TableFunctionB
                                         OdbcOperation operation) {
     switch (operation) {
         case OdbcOperation::SCAN: {
-            auto params = OdbcParameterParser::ParseScanParameters(input);
-            auto result = make_uniq<OdbcScannerState>();
-            result->connection_params = params.connection;
-            result->table_name = params.table_name;
-            result->options = params.options;
-            result->schema_name = params.schema_name;
+            auto result = OdbcFunctionDataFactory::CreateScannerState(input);
             
             // Connect to data source and get schema
             try {
@@ -161,11 +157,7 @@ unique_ptr<FunctionData> BindOdbcFunction(ClientContext &context, TableFunctionB
         }
         
         case OdbcOperation::QUERY: {
-            auto params = OdbcParameterParser::ParseQueryParameters(input);
-            auto result = make_uniq<OdbcScannerState>();
-            result->connection_params = params.connection;
-            result->sql = params.query;
-            result->options = params.options;
+            auto result = OdbcFunctionDataFactory::CreateQueryState(input);
             
             // Connect to data source and get schema
             try {
@@ -207,11 +199,7 @@ unique_ptr<FunctionData> BindOdbcFunction(ClientContext &context, TableFunctionB
         }
         
         case OdbcOperation::EXEC: {
-            auto params = OdbcParameterParser::ParseExecParameters(input);
-            auto result = make_uniq<OdbcExecFunctionData>();
-            result->connection_params = params.connection;
-            result->sql = params.sql;
-            result->options = params.options;
+            auto result = OdbcFunctionDataFactory::CreateExecData(input);
             
             // Set up return types (single boolean column)
             return_types.emplace_back(LogicalTypeId::BOOLEAN);
@@ -221,10 +209,7 @@ unique_ptr<FunctionData> BindOdbcFunction(ClientContext &context, TableFunctionB
         }
         
         case OdbcOperation::ATTACH: {
-            auto params = OdbcParameterParser::ParseAttachParameters(input);
-            auto result = make_uniq<OdbcAttachFunctionData>();
-            result->connection_params = params.connection;
-            result->options = params.options;
+            auto result = OdbcFunctionDataFactory::CreateAttachData(input);
             
             // Set up return types (single boolean column)
             return_types.emplace_back(LogicalTypeId::BOOLEAN);
