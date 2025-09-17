@@ -34,27 +34,6 @@ const std::unordered_map<SQLSMALLINT, LogicalTypeId> OdbcUtils::ODBC_TO_DUCKDB_T
     {SQL_GUID, LogicalTypeId::UUID}
 };
 
-const std::unordered_map<LogicalTypeId, SQLSMALLINT> OdbcUtils::DUCKDB_TO_ODBC_TYPES = {
-    {LogicalTypeId::BOOLEAN, SQL_BIT},
-    {LogicalTypeId::TINYINT, SQL_TINYINT},
-    {LogicalTypeId::SMALLINT, SQL_SMALLINT},
-    {LogicalTypeId::INTEGER, SQL_INTEGER},
-    {LogicalTypeId::BIGINT, SQL_BIGINT},
-    {LogicalTypeId::FLOAT, SQL_REAL},
-    {LogicalTypeId::DOUBLE, SQL_DOUBLE},
-    {LogicalTypeId::DECIMAL, SQL_DECIMAL},
-    {LogicalTypeId::VARCHAR, SQL_VARCHAR},
-    {LogicalTypeId::BLOB, SQL_VARBINARY},
-    {LogicalTypeId::DATE, SQL_TYPE_DATE},
-    {LogicalTypeId::TIME, SQL_TYPE_TIME},
-    {LogicalTypeId::TIMESTAMP, SQL_TYPE_TIMESTAMP},
-    {LogicalTypeId::UUID, SQL_GUID},
-    {LogicalTypeId::UTINYINT, SQL_TINYINT},
-    {LogicalTypeId::USMALLINT, SQL_SMALLINT},
-    {LogicalTypeId::UINTEGER, SQL_INTEGER},
-    {LogicalTypeId::UBIGINT, SQL_BIGINT}
-};
-
 const std::unordered_map<SQLSMALLINT, std::string> OdbcUtils::TYPE_NAMES = {
     {SQL_CHAR, "CHAR"},
     {SQL_VARCHAR, "VARCHAR"},
@@ -119,18 +98,6 @@ LogicalType OdbcUtils::OdbcTypeToLogicalType(SQLSMALLINT odbcType, SQLULEN colum
     return LogicalType::VARCHAR;
 }
 
-SQLSMALLINT OdbcUtils::LogicalTypeToOdbcType(const LogicalType& type) {
-    auto it = DUCKDB_TO_ODBC_TYPES.find(type.id());
-    if (it != DUCKDB_TO_ODBC_TYPES.end()) {
-        return it->second;
-    }
-    return SQL_VARCHAR; // Default for unknown types
-}
-
-bool OdbcUtils::IsBinaryType(SQLSMALLINT sqlType) {
-    return sqlType == SQL_BINARY || sqlType == SQL_VARBINARY || sqlType == SQL_LONGVARBINARY;
-}
-
 void OdbcUtils::GetColumnMetadata(nanodbc::result& result, idx_t colIdx, 
                                 SQLSMALLINT& type, SQLULEN& columnSize, SQLSMALLINT& decimalDigits) {
     try {
@@ -152,28 +119,6 @@ void OdbcUtils::GetColumnMetadata(nanodbc::result& result, idx_t colIdx,
         }
     } catch (const nanodbc::database_error& e) {
         ThrowException("get column metadata", e);
-    }
-}
-
-bool OdbcUtils::ReadVarData(nanodbc::result& result, idx_t colIdx, bool& isNull, std::vector<char>& output) {
-    isNull = false;
-    output.clear();
-    
-    try {
-        if (result.is_null(colIdx)) {
-            isNull = true;
-            return true;
-        }
-        
-        // Get the data using nanodbc
-        std::string value = result.get<std::string>(colIdx);
-        
-        // Copy to output vector
-        output.assign(value.begin(), value.end());
-        return true;
-    } catch (const nanodbc::database_error& e) {
-        ThrowException("read variable data", e);
-        return false; // Won't reach here due to exception
     }
 }
 
