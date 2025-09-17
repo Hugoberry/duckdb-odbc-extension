@@ -54,17 +54,6 @@ public:
     dtime_t GetTime(idx_t colIdx);
     timestamp_t GetTimestamp(idx_t colIdx);
     
-    // Bind parameter values
-    void BindNull(idx_t colIdx);
-    void BindInt32(idx_t colIdx, int32_t value);
-    void BindInt64(idx_t colIdx, int64_t value);
-    void BindDouble(idx_t colIdx, double value);
-    void BindString(idx_t colIdx, const std::string& value);
-    void BindBlob(idx_t colIdx, const char* data, size_t size);
-    
-    // Simplified binding from vector
-    void BindValue(Vector &col, idx_t colIdx, idx_t rowIdx);
-    
     // Make result accessible to scanner
     nanodbc::statement stmt;
     nanodbc::result result;
