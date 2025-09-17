@@ -150,22 +150,18 @@ bool OdbcConnection::IsOpen() const {
 }
 
 std::vector<std::string> OdbcConnection::GetTables() {
-    std::vector<std::string> tables;
-    
     try {
-        // Use nanodbc's catalog functions to get tables
         nanodbc::catalog catalog(connection);
-        auto tableResults = catalog.find_tables(std::string(), std::string("TABLE"), std::string(), std::string());
-        
-        while (tableResults.next()) {
-            std::string tableName = tableResults.table_name();
-            tables.push_back(tableName);
+        auto results = catalog.find_tables({}, "TABLE", {}, {});
+        std::vector<std::string> tables;
+        while (results.next()) {
+            tables.push_back(results.table_name());
         }
+        return tables;
     } catch (const nanodbc::database_error& e) {
         OdbcUtils::ThrowException("get table list", e);
+        return {};
     }
-    
-    return tables;
 }
 
 void OdbcConnection::GetTableInfo(const std::string &tableName, const std::string &schemaName, ColumnList &columns, 

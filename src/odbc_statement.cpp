@@ -130,7 +130,7 @@ std::string OdbcStatement::GetName(idx_t colIdx) {
     if (!IsOpen()) {
         throw BinderException("Statement is not open");
     }
-    
+
     try {
         if (!executed) {
             // Execute to get metadata
@@ -138,11 +138,11 @@ std::string OdbcStatement::GetName(idx_t colIdx) {
             executed = true;
             has_result = true;
         }
-        
+
         return result.column_name(colIdx);
     } catch (const nanodbc::database_error& e) {
         OdbcUtils::ThrowException("get column name", e);
-        return std::string(); // Won't reach here due to exception
+        return {};
     }
 }
 
@@ -150,7 +150,7 @@ idx_t OdbcStatement::GetColumnCount() {
     if (!IsOpen()) {
         throw BinderException("Statement is not open");
     }
-    
+
     try {
         if (!executed) {
             // Execute to get metadata
@@ -158,89 +158,32 @@ idx_t OdbcStatement::GetColumnCount() {
             executed = true;
             has_result = true;
         }
-        
+
         return result.columns();
     } catch (const nanodbc::database_error& e) {
         OdbcUtils::ThrowException("get column count", e);
-        return 0; // Won't reach here due to exception
+        return 0;
     }
 }
 
 bool OdbcStatement::IsNull(idx_t colIdx) const {
-    if (!has_result) {
-        throw BinderException("No result available");
-    }
-    
     return result.is_null(colIdx);
 }
 
 std::string OdbcStatement::GetString(idx_t colIdx) {
-    if (!has_result) {
-        throw BinderException("No result available");
-    }
-    
-    try {
-        if (result.is_null(colIdx)) {
-            return std::string();
-        }
-        
-        return result.get<std::string>(colIdx);
-
-    } catch (const nanodbc::database_error& e) {
-        OdbcUtils::ThrowException("get string value", e);
-        return std::string();
-    }
+    return result.get<std::string>((short)colIdx, std::string());
 }
 
 int32_t OdbcStatement::GetInt32(idx_t colIdx) {
-    if (!has_result) {
-        throw BinderException("No result available");
-    }
-    
-    try {
-        if (result.is_null(colIdx)) {
-            return 0;
-        }
-        
-        return result.get<int32_t>(colIdx);
-    } catch (const nanodbc::database_error& e) {
-        OdbcUtils::ThrowException("get int32 value", e);
-        return 0; // Won't reach here due to exception
-    }
+    return result.get<int32_t>((short)colIdx, 0);
 }
 
 int64_t OdbcStatement::GetInt64(idx_t colIdx) {
-    if (!has_result) {
-        throw BinderException("No result available");
-    }
-    
-    try {
-        if (result.is_null(colIdx)) {
-            return 0;
-        }
-        
-        return result.get<int64_t>(colIdx);
-    } catch (const nanodbc::database_error& e) {
-        OdbcUtils::ThrowException("get int64 value", e);
-        return 0; // Won't reach here due to exception
-    }
+    return result.get<int64_t>((short)colIdx, 0);
 }
 
 double OdbcStatement::GetDouble(idx_t colIdx) {
-    if (!has_result) {
-        throw BinderException("No result available");
-    }
-    
-    try {
-        if (result.is_null(colIdx)) {
-            return 0.0;
-        }
-        
-        return result.get<double>(colIdx);
-    } catch (const nanodbc::database_error& e) {
-        OdbcUtils::ThrowException("get double value", e);
-        return 0.0; // Won't reach here due to exception
-    }
+    return result.get<double>((short)colIdx, 0.0);
 }
 
 dtime_t OdbcStatement::GetTime(idx_t colIdx) {
