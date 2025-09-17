@@ -96,74 +96,41 @@ bool OdbcStatement::IsOpen() const {
 }
 
 SQLSMALLINT OdbcStatement::GetOdbcType(idx_t colIdx, SQLULEN* columnSize, SQLSMALLINT* decimalDigits) {
-    if (!IsOpen()) {
-        throw BinderException("Statement is not open");
+    if (!executed) {
+        // Execute to get metadata
+        result = stmt.execute();
+        executed = true;
+        has_result = true;
     }
     
-    try {
-        if (!executed) {
-            // Execute to get metadata
-            result = stmt.execute();
-            executed = true;
-            has_result = true;
-        }
-        
-        SQLSMALLINT dataType;
-        SQLULEN size;
-        SQLSMALLINT digits;
-        
-        // Get column metadata
-        OdbcUtils::GetColumnMetadata(result, colIdx, dataType, size, digits);
-        
-        // Pass back column size and decimal digits if requested
-        if (columnSize) *columnSize = size;
-        if (decimalDigits) *decimalDigits = digits;
-        
-        return dataType;
-    } catch (const nanodbc::database_error& e) {
-        OdbcUtils::ThrowException("get column type", e);
-        return SQL_UNKNOWN_TYPE; // Won't reach here due to exception
-    }
+    auto dataType = result.column_datatype(colIdx);
+    if (columnSize) *columnSize = result.column_size(colIdx);
+    if (decimalDigits) *decimalDigits = result.column_decimal_digits(colIdx);
+
+    return dataType;
 }
 
 std::string OdbcStatement::GetName(idx_t colIdx) {
-    if (!IsOpen()) {
-        throw BinderException("Statement is not open");
+    if (!executed) {
+        // Execute to get metadata
+        result = stmt.execute();
+        executed = true;
+        has_result = true;
     }
 
-    try {
-        if (!executed) {
-            // Execute to get metadata
-            result = stmt.execute();
-            executed = true;
-            has_result = true;
-        }
-
-        return result.column_name(colIdx);
-    } catch (const nanodbc::database_error& e) {
-        OdbcUtils::ThrowException("get column name", e);
-        return {};
-    }
+    return result.column_name(colIdx);
 }
 
 idx_t OdbcStatement::GetColumnCount() {
-    if (!IsOpen()) {
-        throw BinderException("Statement is not open");
+
+    if (!executed) {
+        // Execute to get metadata
+        result = stmt.execute();
+        executed = true;
+        has_result = true;
     }
 
-    try {
-        if (!executed) {
-            // Execute to get metadata
-            result = stmt.execute();
-            executed = true;
-            has_result = true;
-        }
-
-        return result.columns();
-    } catch (const nanodbc::database_error& e) {
-        OdbcUtils::ThrowException("get column count", e);
-        return 0;
-    }
+    return result.columns();
 }
 
 bool OdbcStatement::IsNull(idx_t colIdx) const {

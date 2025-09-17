@@ -98,30 +98,6 @@ LogicalType OdbcUtils::OdbcTypeToLogicalType(SQLSMALLINT odbcType, SQLULEN colum
     return LogicalType::VARCHAR;
 }
 
-void OdbcUtils::GetColumnMetadata(nanodbc::result& result, idx_t colIdx, 
-                                SQLSMALLINT& type, SQLULEN& columnSize, SQLSMALLINT& decimalDigits) {
-    try {
-        // Get the column data type
-        type = result.column_datatype(colIdx);
-        
-        // Get the column size and decimal digits
-        columnSize = 0;
-        decimalDigits = 0;
-        
-        // For some data types, we need additional metadata
-        if (type == SQL_NUMERIC || type == SQL_DECIMAL) {
-            columnSize = result.column_size(colIdx);
-            decimalDigits = result.column_decimal_digits(colIdx);
-        } else if (type == SQL_CHAR || type == SQL_VARCHAR || type == SQL_WCHAR || type == SQL_WVARCHAR) {
-            columnSize = result.column_size(colIdx);
-        } else if (type == SQL_BINARY || type == SQL_VARBINARY) {
-            columnSize = result.column_size(colIdx);
-        }
-    } catch (const nanodbc::database_error& e) {
-        ThrowException("get column metadata", e);
-    }
-}
-
 bool OdbcUtils::IsVarcharType(SQLSMALLINT sqlType) {
     return sqlType == SQL_CHAR || sqlType == SQL_VARCHAR || 
            sqlType == SQL_LONGVARCHAR || sqlType == SQL_WCHAR || 

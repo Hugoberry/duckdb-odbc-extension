@@ -15,10 +15,6 @@ public:
     // Sanitize string for ODBC usage (escape quotes)
     static std::string SanitizeString(const std::string& input);
     
-    // Get column metadata from nanodbc result
-    static void GetColumnMetadata(nanodbc::result& result, idx_t colIdx, 
-                                 SQLSMALLINT& type, SQLULEN& columnSize, SQLSMALLINT& decimalDigits);
-    
     // Type conversion lookups
     static LogicalType OdbcTypeToLogicalType(SQLSMALLINT odbcType, SQLULEN columnSize, SQLSMALLINT decimalDigits);
     
