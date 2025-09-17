@@ -31,9 +31,6 @@ public:
     // Execute and fetch next row
     bool Step();
     
-    // Reset statement for re-execution
-    void Reset();
-    
     // Close statement and free resources
     void Close();
     

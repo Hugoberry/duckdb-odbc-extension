@@ -34,49 +34,12 @@ const std::unordered_map<SQLSMALLINT, LogicalTypeId> OdbcUtils::ODBC_TO_DUCKDB_T
     {SQL_GUID, LogicalTypeId::UUID}
 };
 
-const std::unordered_map<SQLSMALLINT, std::string> OdbcUtils::TYPE_NAMES = {
-    {SQL_CHAR, "CHAR"},
-    {SQL_VARCHAR, "VARCHAR"},
-    {SQL_LONGVARCHAR, "LONGVARCHAR"},
-    {SQL_WCHAR, "WCHAR"},
-    {SQL_WVARCHAR, "WVARCHAR"},
-    {SQL_WLONGVARCHAR, "WLONGVARCHAR"},
-    {SQL_DECIMAL, "DECIMAL"},
-    {SQL_NUMERIC, "NUMERIC"},
-    {SQL_SMALLINT, "SMALLINT"},
-    {SQL_INTEGER, "INTEGER"},
-    {SQL_REAL, "REAL"},
-    {SQL_FLOAT, "FLOAT"},
-    {SQL_DOUBLE, "DOUBLE"},
-    {SQL_BIT, "BIT"},
-    {SQL_TINYINT, "TINYINT"},
-    {SQL_BIGINT, "BIGINT"},
-    {SQL_BINARY, "BINARY"},
-    {SQL_VARBINARY, "VARBINARY"},
-    {SQL_LONGVARBINARY, "LONGVARBINARY"},
-    {SQL_DATE, "DATE"},
-    {SQL_TIME, "TIME"},
-    {SQL_TIMESTAMP, "TIMESTAMP"},
-    {SQL_TYPE_DATE, "DATE"},
-    {SQL_TYPE_TIME, "TIME"},
-    {SQL_TYPE_TIMESTAMP, "TIMESTAMP"},
-    {SQL_GUID, "GUID"}
-};
-
 void OdbcUtils::ThrowException(const std::string& operation, const nanodbc::database_error& e) {
     throw BinderException("ODBC error: Failed to " + operation + ": " + e.what());
 }
 
 std::string OdbcUtils::SanitizeString(const std::string& input) {
     return StringUtil::Replace(input, "\"", "\"\"");
-}
-
-std::string OdbcUtils::GetTypeName(SQLSMALLINT odbcType) {
-    auto it = TYPE_NAMES.find(odbcType);
-    if (it != TYPE_NAMES.end()) {
-        return it->second;
-    }
-    return "UNKNOWN";
 }
 
 LogicalType OdbcUtils::OdbcTypeToLogicalType(SQLSMALLINT odbcType, SQLULEN columnSize, SQLSMALLINT decimalDigits) {

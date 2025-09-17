@@ -17,9 +17,6 @@ public:
     
     // Type conversion lookups
     static LogicalType OdbcTypeToLogicalType(SQLSMALLINT odbcType, SQLULEN columnSize, SQLSMALLINT decimalDigits);
-    
-    // Type name for error messages
-    static std::string GetTypeName(SQLSMALLINT odbcType);
 
     static bool IsVarcharType(SQLSMALLINT sqlType);
 #ifdef _WIN32

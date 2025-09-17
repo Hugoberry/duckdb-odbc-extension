@@ -67,18 +67,6 @@ bool OdbcStatement::Step() {
     }
 }
 
-void OdbcStatement::Reset() {
-    if (IsOpen()) {
-        try {
-            stmt.close();
-            has_result = false;
-            executed = false;
-        } catch (const nanodbc::database_error& e) {
-            OdbcUtils::ThrowException("reset statement", e);
-        }
-    }
-}
-
 void OdbcStatement::Close() {
     if (IsOpen()) {
         try {
