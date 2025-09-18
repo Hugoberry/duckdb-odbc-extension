@@ -167,52 +167,36 @@ std::vector<std::string> OdbcConnection::GetTables() {
 void OdbcConnection::GetTableInfo(const std::string &tableName, const std::string &schemaName, ColumnList &columns, 
                                 std::vector<std::unique_ptr<Constraint>> &constraints, bool allVarchar) {
     try {
-        // Get column information using nanodbc catalog
         nanodbc::catalog catalog(connection);
         auto columnResults = catalog.find_columns(std::string(), tableName, schemaName, std::string());
-
-        idx_t columnIndex = 0;
         
+        idx_t columnIndex = 0;
         while (columnResults.next()) {
-            std::string name = columnResults.column_name();
+            std::string columnName = columnResults.column_name();
             SQLSMALLINT dataType = columnResults.data_type();
-            SQLULEN columnSize = 0;
-            // Get column size safely - catch exceptions for VARCHAR types
-            try {
-                columnSize = columnResults.column_size();
-            } catch (const std::exception& e) {
-                // If column_size() fails, use a safe default (for VARCHAR in DuckDB)
-                columnSize = 0; // Will be handled when converting to logical type
-            }
+            SQLULEN columnSize = columnResults.column_size();
             SQLSMALLINT decimalDigits = columnResults.decimal_digits();
             SQLSMALLINT nullable = columnResults.nullable();
             
-            LogicalType columnType;
-            if (allVarchar) {
-                columnType = LogicalType::VARCHAR;
-            } else {
-                // For VARCHAR types in DuckDB, don't rely on column size
-                if (OdbcUtils::IsVarcharType(dataType)) {
-                    columnType = LogicalType::VARCHAR;
-                } else {
-                    columnType = OdbcUtils::OdbcTypeToLogicalType(dataType, columnSize, decimalDigits);
-                }
-            }
+            LogicalType duckType = allVarchar ? 
+                LogicalType::VARCHAR : 
+                OdbcUtils::OdbcTypeToLogicalType(dataType, columnSize, decimalDigits);
+                
+            columns.AddColumn(ColumnDefinition(columnName, duckType));
             
-            ColumnDefinition column(std::move(name), columnType);
-            columns.AddColumn(std::move(column));
-            
+            // Add constraints based on nullable
             if (nullable == SQL_NO_NULLS) {
-                constraints.push_back(make_uniq<NotNullConstraint>(LogicalIndex(columnIndex)));
+                auto constraint = make_uniq<NotNullConstraint>(LogicalIndex(columnIndex));
+                constraints.push_back(std::move(constraint));
             }
             
             columnIndex++;
         }
-        
+
         if (columnIndex == 0) {
             throw BinderException("No columns found for table '" + tableName + "'");
         }
-
+        
     } catch (const nanodbc::database_error& e) {
         OdbcUtils::ThrowException("get table info for '" + tableName + "'", e);
     }
