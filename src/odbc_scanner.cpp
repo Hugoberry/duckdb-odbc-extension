@@ -327,7 +327,7 @@ void ScanOdbcSource(ClientContext &context, TableFunctionInput &data, DataChunk 
             auto &out_vec = output.data[col_idx];
             
             // Check for NULL
-            if (state.statement->IsNull(col_idx)) {
+            if (state.statement->result.is_null(col_idx)) {
                 FlatVector::Validity(out_vec).Set(out_idx, false);
                 continue;
             }
@@ -335,7 +335,7 @@ void ScanOdbcSource(ClientContext &context, TableFunctionInput &data, DataChunk 
             // Based on the output vector type, convert and fetch the data
             switch (out_vec.GetType().id()) {
                 case LogicalTypeId::VARCHAR: {
-                    std::string str_val = state.statement->GetString(col_idx);
+                    std::string str_val = state.statement->result.get<std::string>((short)col_idx);
                     // Apply encoding conversion if needed
                     if (OdbcEncoding::NeedsConversion(bind_data.options.encoding)) {
                         str_val = OdbcEncoding::ConvertToUTF8(str_val, bind_data.options.encoding);
@@ -346,31 +346,31 @@ void ScanOdbcSource(ClientContext &context, TableFunctionInput &data, DataChunk 
                 }
                 
                 case LogicalTypeId::BOOLEAN:
-                    FlatVector::GetData<bool>(out_vec)[out_idx] = (state.statement->GetInt32(col_idx) != 0);
+                    FlatVector::GetData<bool>(out_vec)[out_idx] = (state.statement->result.get<int32_t>((short)col_idx) != 0);
                     break;
                     
                 case LogicalTypeId::TINYINT:
-                    FlatVector::GetData<int8_t>(out_vec)[out_idx] = static_cast<int8_t>(state.statement->GetInt32(col_idx));
+                    FlatVector::GetData<int8_t>(out_vec)[out_idx] = static_cast<int8_t>(state.statement->result.get<int32_t>((short)col_idx));
                     break;
                     
                 case LogicalTypeId::SMALLINT:
-                    FlatVector::GetData<int16_t>(out_vec)[out_idx] = static_cast<int16_t>(state.statement->GetInt32(col_idx));
+                    FlatVector::GetData<int16_t>(out_vec)[out_idx] = static_cast<int16_t>(state.statement->result.get<int32_t>((short)col_idx));
                     break;
                     
                 case LogicalTypeId::INTEGER:
-                    FlatVector::GetData<int32_t>(out_vec)[out_idx] = state.statement->GetInt32(col_idx);
+                    FlatVector::GetData<int32_t>(out_vec)[out_idx] = state.statement->result.get<int32_t>((short)col_idx);
                     break;
                     
                 case LogicalTypeId::BIGINT:
-                    FlatVector::GetData<int64_t>(out_vec)[out_idx] = state.statement->GetInt64(col_idx);
+                    FlatVector::GetData<int64_t>(out_vec)[out_idx] = state.statement->result.get<int64_t>((short)col_idx);
                     break;
                     
                 case LogicalTypeId::FLOAT:
-                    FlatVector::GetData<float>(out_vec)[out_idx] = static_cast<float>(state.statement->GetDouble(col_idx));
+                    FlatVector::GetData<float>(out_vec)[out_idx] = static_cast<float>(state.statement->result.get<double>((short)col_idx));
                     break;
                     
                 case LogicalTypeId::DOUBLE:
-                    FlatVector::GetData<double>(out_vec)[out_idx] = state.statement->GetDouble(col_idx);
+                    FlatVector::GetData<double>(out_vec)[out_idx] = state.statement->result.get<double>((short)col_idx);
                     break;
                     
                 case LogicalTypeId::DECIMAL: {
@@ -378,7 +378,7 @@ void ScanOdbcSource(ClientContext &context, TableFunctionInput &data, DataChunk 
                     uint8_t width = DecimalType::GetWidth(decimal_type);
                     uint8_t scale = DecimalType::GetScale(decimal_type);
                     
-                    double decimal_val = state.statement->GetDouble(col_idx);
+                    double decimal_val = state.statement->result.get<double>((short)col_idx);
                     double scaled_val = decimal_val * pow(10, scale);
                     
                     switch (decimal_type.InternalType()) {
@@ -402,24 +402,28 @@ void ScanOdbcSource(ClientContext &context, TableFunctionInput &data, DataChunk 
                 }
                 
                 case LogicalTypeId::DATE: {
-                    timestamp_t ts = state.statement->GetTimestamp(col_idx);
-                    FlatVector::GetData<date_t>(out_vec)[out_idx] = Timestamp::GetDate(ts);
+                    nanodbc::date dt = state.statement->result.get<nanodbc::date>((short)col_idx);
+                    FlatVector::GetData<date_t>(out_vec)[out_idx] = Date::FromDate(dt.year,dt.month,dt.day);
                     break;
                 }
                 
                 case LogicalTypeId::TIME: {
-                    dtime_t ts = state.statement->GetTime(col_idx);
-                    FlatVector::GetData<dtime_t>(out_vec)[out_idx] = ts;
+                    nanodbc::time ti = state.statement->result.get<nanodbc::time>((short)col_idx);
+                    FlatVector::GetData<dtime_t>(out_vec)[out_idx] = Time::FromTime(ti.hour,ti.min,ti.sec);
                     break;
                 }
                 
                 case LogicalTypeId::TIMESTAMP: {
-                    FlatVector::GetData<timestamp_t>(out_vec)[out_idx] = state.statement->GetTimestamp(col_idx);
+                    nanodbc::timestamp ts = state.statement->result.get<nanodbc::timestamp>((short)col_idx);
+                    // Convert to DuckDB timestamp
+                    date_t date = Date::FromDate(ts.year, ts.month, ts.day);
+                    dtime_t time = Time::FromTime(ts.hour, ts.min, ts.sec, ts.fract / 1000000);
+                    FlatVector::GetData<timestamp_t>(out_vec)[out_idx] = Timestamp::FromDatetime(date, time);
                     break;
                 }
                 
                 case LogicalTypeId::UUID: {
-                    std::string uuidStr = state.statement->GetString(col_idx);
+                    std::string uuidStr = state.statement->result.get<std::string>((short)col_idx);
                     try {
                         hugeint_t uuidValue;
                         if (UUID::FromString(uuidStr, uuidValue)) {
@@ -434,7 +438,7 @@ void ScanOdbcSource(ClientContext &context, TableFunctionInput &data, DataChunk 
                 }
                 
                 case LogicalTypeId::BLOB: {
-                    std::string blob_data = state.statement->GetString(col_idx);
+                    std::string blob_data = state.statement->result.get<std::string>((short)col_idx);
                     FlatVector::GetData<string_t>(out_vec)[out_idx] = 
                         StringVector::AddStringOrBlob(out_vec, blob_data.data(), blob_data.size());
                     break;
