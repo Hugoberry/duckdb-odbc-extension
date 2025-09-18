@@ -5,6 +5,11 @@
 
 namespace duckdb {
 
+// Forward declarations
+struct OdbcScannerState;
+struct OdbcExecFunctionData;
+struct OdbcAttachFunctionData;
+
 // Common options for all ODBC functions
 struct OdbcOptions {
     bool all_varchar = false;
@@ -13,54 +18,21 @@ struct OdbcOptions {
     // Add other common options as needed
 };
 
-// Scan-specific parameters
-struct OdbcScanParameters {
-    ConnectionParams connection;
-    std::string table_name;
-    std::string schema_name;
-    OdbcOptions options;
-};
-
-// Query-specific parameters
-struct OdbcQueryParameters {
-    ConnectionParams connection;
-    std::string query;
-    OdbcOptions options;
-};
-
-// Exec-specific parameters
-struct OdbcExecParameters {
-    ConnectionParams connection;
-    std::string sql;
-    OdbcOptions options;
-};
-
-// Attach-specific parameters
-struct OdbcAttachParameters {
-    ConnectionParams connection;
-    OdbcOptions options;
-};
-
-// Parameter parsing utility class
-class OdbcParameterParser {
+/**
+ * @brief Factory class for creating ODBC function data structures
+ * Implements the Factory Pattern to eliminate intermediate parameter structs
+ */
+class OdbcFunctionDataFactory {
 public:
-    // Parse connection parameters from named parameters
+    // Factory methods that directly populate the target data structures
+    static std::unique_ptr<OdbcScannerState> CreateScannerState(const TableFunctionBindInput& input);
+    static std::unique_ptr<OdbcScannerState> CreateQueryState(const TableFunctionBindInput& input);
+    static std::unique_ptr<OdbcExecFunctionData> CreateExecData(const TableFunctionBindInput& input);
+    static std::unique_ptr<OdbcAttachFunctionData> CreateAttachData(const TableFunctionBindInput& input);
+
+    // Helper methods for parsing common components
     static ConnectionParams ParseConnectionParams(const TableFunctionBindInput& input);
-    
-    // Parse common options from named parameters
-    static OdbcOptions ParseCommonOptions(const TableFunctionBindInput& input);
-    
-    // Parse scan-specific parameters
-    static OdbcScanParameters ParseScanParameters(const TableFunctionBindInput& input);
-    
-    // Parse query-specific parameters
-    static OdbcQueryParameters ParseQueryParameters(const TableFunctionBindInput& input);
-    
-    // Parse exec-specific parameters
-    static OdbcExecParameters ParseExecParameters(const TableFunctionBindInput& input);
-    
-    // Parse attach-specific parameters
-    static OdbcAttachParameters ParseAttachParameters(const TableFunctionBindInput& input);
+    static OdbcOptions ParseOptions(const TableFunctionBindInput& input);
     
 private:
     // Helper to get a string parameter with error checking

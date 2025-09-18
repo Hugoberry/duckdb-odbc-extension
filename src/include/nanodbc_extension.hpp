@@ -18,7 +18,7 @@ public:
 #ifdef EXT_VERSION_NANODBC
         return EXT_VERSION_NANODBC;
 #else
-        return "v0.3.2";
+        return "v0.4.0";
 #endif
     }
 };
