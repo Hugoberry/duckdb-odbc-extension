@@ -92,6 +92,12 @@ set(EXTENSION_SOURCES
     src/nanodbc_extension.cpp
     src/odbc_parameters.cpp
     src/odbc_encoding.cpp
+    src/odbc_storage.cpp
+    src/storage/odbc_catalog.cpp
+    src/storage/odbc_transaction_manager.cpp
+    src/storage/odbc_transaction.cpp
+    src/storage/odbc_schema_entry.cpp
+    src/storage/odbc_table_entry.cpp
 )
 
 # Combined sources

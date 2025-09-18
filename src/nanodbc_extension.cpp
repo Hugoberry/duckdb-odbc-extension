@@ -2,6 +2,7 @@
 #include "nanodbc_extension.hpp"
 #include "duckdb.hpp"
 #include "odbc_scanner.hpp"
+#include "odbc_storage.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 
@@ -19,6 +20,10 @@ static void RegisterOdbcFunctions(ExtensionLoader &loader) {
 static void LoadInternal(ExtensionLoader &loader) {
     // Register the ODBC functions
     RegisterOdbcFunctions(loader);
+    // Storage extension
+    auto &db = loader.GetDatabaseInstance();
+    auto &config = DBConfig::GetConfig(db);
+    config.storage_extensions["nanodbc"] = make_uniq<OdbcStorageExtension>();
 }
 
 void NanodbcExtension::Load(ExtensionLoader &loader) {
