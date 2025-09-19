@@ -142,9 +142,9 @@ unique_ptr<FunctionData> BindOdbcFunction(ClientContext &context, TableFunctionB
                     return_types.push_back(column.GetType());
                 }
                 
-                if (names.empty()) {
-                    throw BinderException("No columns found for table " + result->table_name);
-                }
+                // if (names.empty()) {
+                //     throw BinderException("No columns found for table " + result->table_name);
+                // }
                 
                 result->column_names = names;
                 result->column_types = return_types;

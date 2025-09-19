@@ -193,9 +193,9 @@ void OdbcConnection::GetTableInfo(const std::string &tableName, const std::strin
             columnIndex++;
         }
 
-        if (columnIndex == 0) {
-            throw BinderException("No columns found for table '" + tableName + "'");
-        }
+        // if (columnIndex == 0) {
+        //     throw BinderException("No columns found for table '" + tableName + "'");
+        // }
         
     } catch (const nanodbc::database_error& e) {
         OdbcUtils::ThrowException("get table info for '" + tableName + "'", e);
