@@ -366,7 +366,7 @@ void ScanOdbcSource(ClientContext &context, TableFunctionInput &data, DataChunk 
                     break;
                     
                 case LogicalTypeId::FLOAT:
-                    FlatVector::GetData<float>(out_vec)[out_idx] = static_cast<float>(state.statement->result.get<double>((short)col_idx));
+                    FlatVector::GetData<float>(out_vec)[out_idx] = state.statement->result.get<float>((short)col_idx);
                     break;
                     
                 case LogicalTypeId::DOUBLE:
