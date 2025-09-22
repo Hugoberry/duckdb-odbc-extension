@@ -1,0 +1,14 @@
+# name: test/sql/odbc_tsql_flat.test
+# description: test nanodbc extension
+# group: [odbc]
+
+# Require statement will ensure this test is run with this extension loaded
+require nanodbc
+
+require-env NANODBC_ENVIRONMENT
+
+# Confirm the extension works with connection string
+query I
+select (a==1/(7::double))::boolean FROM odbc_query(connection='AdventureWorks', query='SELECT 1/cast(7 as float) as a', username='sa',password='YourStrong@Passw0rd');
+----
+true
