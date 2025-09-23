@@ -1,0 +1,20 @@
+# name: test/sql/odbc_tsql_flat.test
+# description: test nanodbc extension
+# group: [odbc]
+
+# Require statement will ensure this test is run with this extension loaded
+require nanodbc
+
+require-env NANODBC_ENVIRONMENT
+
+# Confirm that flooats with precision >=24 are treated as double
+query I
+select (a==1/(7::double))::boolean FROM odbc_query(connection='AdventureWorks', query='SELECT 1/cast(7 as float) as a', username='sa',password='');
+----
+true
+
+# Confirm the floats below 24 precision are treated as float
+query I
+select (a==1/(7::float))::boolean FROM odbc_query(connection='AdventureWorks', query='SELECT 1/cast(7 as float(24)) as a', username='sa',password='');
+----
+true
