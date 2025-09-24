@@ -53,6 +53,17 @@ LogicalType OdbcUtils::OdbcTypeToLogicalType(SQLSMALLINT odbcType, SQLULEN colum
             // if (decimalDigits == 0 && odbcType == SQL_DECIMAL) decimalDigits = 2;  // Default scale
             return LogicalType::DECIMAL(columnSize, decimalDigits);
         }
+        // Special handling for SQL_FLOAT - use precision to determine float vs double
+        if (odbcType == SQL_FLOAT) {
+            // Float precision rules:
+            // columnSize <= 24: single precision (4 bytes) -> FLOAT
+            // columnSize > 24 or columnSize == 0 (default): double precision (8 bytes) -> DOUBLE
+            if (columnSize == 0 || columnSize > 24) {
+                return LogicalType::DOUBLE;
+            } else {
+                return LogicalType::FLOAT;
+            }
+        }
         
         return LogicalType(typeId);
     }
