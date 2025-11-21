@@ -1,5 +1,8 @@
 # DuckDB ODBC Extension
 
+> **⚠️ WARNING: This repository is archived and no longer maintained.**
+> Please use the official odbc-scanner extension: https://github.com/duckdb/odbc-scanner
+
 The DuckDB ODBC extension allows DuckDB to seamlessly connect to any database system that provides an ODBC driver. This enables you to query and analyze data from a wide variety of data sources without leaving the DuckDB ecosystem.
 
 ## Features
