@@ -1,0 +1,22 @@
+# name: test/sql/odbc_storage_attach.test
+# description: Test ODBC storage extension attach functionality with RNACentral PostgreSQL database
+# group: [odbc]
+
+require nanodbc
+
+require-env NANODBC_ENVIRONMENT
+
+# Test attaching RNACentral database using DuckDB's native ATTACH syntax
+statement ok
+ATTACH 'unused_path' AS rna (
+    TYPE nanodbc,
+    connection_string 'DSN=RNAcentral'
+);
+
+# Verify the database is attached by checking schemas
+query I
+SELECT id 
+FROM rna.rnc_database order by 1 limit 1;
+----
+1
+
